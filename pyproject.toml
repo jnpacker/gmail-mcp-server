@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gmail-mcp-server"
+version = "0.1.0"
+description = "MCP server for Gmail integration with unread email listing, filtering, delete and archive capabilities"
+authors = [{name = "Gmail MCP Server", email = "noreply@example.com"}]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "mcp>=1.0.0",
+    "google-auth>=2.23.0",
+    "google-auth-oauthlib>=1.0.0", 
+    "google-auth-httplib2>=0.1.0",
+    "google-api-python-client>=2.100.0",
+]
+
+[project.scripts]
+gmail-mcp-server = "gmail_mcp_server.server:main"
