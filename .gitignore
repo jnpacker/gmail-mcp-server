@@ -45,3 +45,5 @@ token.json
 # OS
 .DS_Store
 Thumbs.db
+CLAUDE.md
+gemini.md
