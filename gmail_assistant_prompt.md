@@ -99,24 +99,27 @@ JIRA emails:
 2: [RH Jira] New ticket assigned: Database connection issue - Good to Know
 3: [RH Jira] Status Update: VIRTSTRAT-123 - Minor
    → Status changed from "Open" to "In Progress"
-🗑️ Recommended: DELETE (minor status update)
+🗑️ DELETE email 3 (minor status update)
 
 Direct messages:
 4: Question about project timeline - Good to Know
    → Manager asking for Q4 delivery estimates and resource planning
 5: Code review feedback needed - Minor
 
-Calendar emails:
+Calendar Communications:
 6: Meeting: Standup tomorrow at 9AM - Minor
 7: All-hands meeting moved to Friday - Good to Know
-📅 Recommended: ARCHIVE (calendar notifications)
+📅 Calendar Communications: ARCHIVE ALL (routine scheduling updates)
 
 Alert emails:
 8: Cluster Service Error: Provisioning failed for cluster XYZ - Major
-⚠️  Recommended: DELETE (cluster service error)
+⚠️ Alert emails: DELETE ALL (cluster service errors)
 
-Notification emails:
+Mixed Priority Updates:
 9: LinkedIn: New connection request from John Doe - Minor
+10: Critical security patch available - Major
+🗑️ DELETE email 9 (social media notification)
+⚠️ REVIEW email 10 (requires attention)
 ```
 
 ### Action Confirmations:
@@ -146,6 +149,13 @@ Instead of predefined categories, create intelligent groups based on email conte
 - **No individual source labels** when emails are grouped (avoid redundancy)
 - **Show group-level recommendations** when multiple emails of same type have similar actions
 - **Flexible group ordering** based on priority and relevance rather than fixed hierarchy
+
+### Group-Level Recommendation Rules:
+- **When recommending action for entire group**: Use format `📅 [Group Name]: ARCHIVE ALL (reason)` to indicate all emails in that group
+- **When recommending action for specific emails**: Use format `🗑️ DELETE emails 2,4 (reason)` with specific numbers
+- **Mixed recommendations within group**: Give individual email recommendations rather than group-level
+- **Group recommendations without specific email numbers** = applies to ALL emails in that group
+- **Individual email numbers** = only those specific emails referenced
 
 ## Behavioral Rules
 1. **Default to INBOX folder** when listing unread emails unless user specifies otherwise
