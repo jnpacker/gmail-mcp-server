@@ -176,33 +176,44 @@ class GmailClient:
     
     def delete_email(self, message_id: str) -> dict:
         """
-        Move an email to trash.
+        Move an email to trash and mark it as read.
 
         Args:
             message_id: The ID of the email to move to trash
 
         Returns:
-            Dict with 'success' bool and 'error' string if failed
+            Dict with 'success' bool, 'subject' string, and 'error' string if failed
         """
         self._ensure_authenticated()
         try:
+            # Get email subject before deleting
+            email_details = self._get_email_details(message_id)
+            subject = email_details.get('subject', 'No Subject') if email_details else 'Unknown Subject'
+
+            # Truncate subject to prevent line wrapping (max 60 characters)
+            if len(subject) > 60:
+                subject = subject[:57] + "..."
+
             self.service.users().messages().modify(
                 userId='me',
                 id=message_id,
-                body={'addLabelIds': ['TRASH']}
+                body={
+                    'addLabelIds': ['TRASH'],
+                    'removeLabelIds': ['UNREAD']
+                }
             ).execute()
-            return {"success": True, "error": None}
+            return {"success": True, "subject": subject, "error": None}
 
         except HttpError as error:
             error_details = f"HTTP {error.resp.status}: {error.error_details if hasattr(error, 'error_details') else str(error)}"
             print(f"An error occurred while moving email to trash: {error_details}")
-            return {"success": False, "error": error_details}
+            return {"success": False, "subject": None, "error": error_details}
         except Exception as error:
             error_details = f"Unexpected error: {str(error)} ({type(error).__name__})"
             print(f"An error occurred while moving email to trash: {error_details}")
-            return {"success": False, "error": error_details}
+            return {"success": False, "subject": None, "error": error_details}
     
-    def archive_email(self, message_id: str) -> bool:
+    def archive_email(self, message_id: str) -> dict:
         """
         Archive an email (remove from inbox).
 
@@ -210,17 +221,30 @@ class GmailClient:
             message_id: The ID of the email to archive
 
         Returns:
-            True if successful, False otherwise
+            Dict with 'success' bool, 'subject' string, and 'error' string if failed
         """
         self._ensure_authenticated()
         try:
+            # Get email subject before archiving
+            email_details = self._get_email_details(message_id)
+            subject = email_details.get('subject', 'No Subject') if email_details else 'Unknown Subject'
+
+            # Truncate subject to prevent line wrapping (max 60 characters)
+            if len(subject) > 60:
+                subject = subject[:57] + "..."
+
             self.service.users().messages().modify(
                 userId='me',
                 id=message_id,
-                body={'removeLabelIds': ['INBOX']}
+                body={'removeLabelIds': ['INBOX', 'UNREAD']}
             ).execute()
-            return True
-            
+            return {"success": True, "subject": subject, "error": None}
+
         except HttpError as error:
-            print(f"An error occurred while archiving email: {error}")
-            return False
+            error_details = f"HTTP {error.resp.status}: {error.error_details if hasattr(error, 'error_details') else str(error)}"
+            print(f"An error occurred while archiving email: {error_details}")
+            return {"success": False, "subject": None, "error": error_details}
+        except Exception as error:
+            error_details = f"Unexpected error: {str(error)} ({type(error).__name__})"
+            print(f"An error occurred while archiving email: {error_details}")
+            return {"success": False, "subject": None, "error": error_details}

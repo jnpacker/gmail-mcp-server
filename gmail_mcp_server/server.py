@@ -21,10 +21,11 @@ from .gmail_client import GmailClient
 
 class GmailMCPServer:
     """Gmail MCP Server implementation."""
-    
+
     def __init__(self):
         self.server = Server("gmail-mcp-server")
         self.gmail_client = None
+        self.email_position_map = {}  # Maps position numbers to email IDs
         self._setup_handlers()
     
     def _setup_handlers(self):
@@ -54,30 +55,44 @@ class GmailMCPServer:
                 ),
                 Tool(
                     name="delete_email",
-                    description="Move an email to trash by ID",
+                    description="Move an email to trash and mark it as read by ID or position number",
                     inputSchema={
                         "type": "object",
                         "properties": {
                             "message_id": {
                                 "type": "string",
-                                "description": "The Gmail message ID to move to trash"
+                                "description": "The Gmail message ID to move to trash (alternative to position)"
+                            },
+                            "position": {
+                                "type": "integer",
+                                "description": "The numbered position from the email list (alternative to message_id)"
+                            },
+                            "subject": {
+                                "type": "string",
+                                "description": "The email subject (for display purposes during approval)"
                             }
-                        },
-                        "required": ["message_id"]
+                        }
                     }
                 ),
                 Tool(
-                    name="archive_email", 
-                    description="Archive an email (remove from inbox) by ID",
+                    name="archive_email",
+                    description="Archive an email (remove from inbox) by ID or position number",
                     inputSchema={
                         "type": "object",
                         "properties": {
                             "message_id": {
                                 "type": "string",
-                                "description": "The Gmail message ID to archive"
+                                "description": "The Gmail message ID to archive (alternative to position)"
+                            },
+                            "position": {
+                                "type": "integer",
+                                "description": "The numbered position from the email list (alternative to message_id)"
+                            },
+                            "subject": {
+                                "type": "string",
+                                "description": "The email subject (for display purposes during approval)"
                             }
-                        },
-                        "required": ["message_id"]
+                        }
                     }
                 )
             ]
@@ -113,30 +128,35 @@ class GmailMCPServer:
                             text="No unread emails found matching the criteria."
                         )]
                     
-                    result = f"Found {len(emails)} unread email(s):\n\n"
-                    for i, email in enumerate(emails, 1):
-                        result += f"Email {i}:\n"
-                        result += f"  ID: {email['id']}\n"
-                        result += f"  Subject: {email['subject']}\n"
-                        result += f"  From: {email['sender']}\n"
-                        result += f"  Date: {email['date']}\n"
-                        result += f"  Snippet: {email['snippet']}\n"
-                        result += f"  Body:\n{email['body']}\n"
-                        result += "-" * 80 + "\n\n"
-                    
+                    # Format emails as simple numbered list - let AI handle categorization and analysis
+                    formatted_output = self._format_email_list(emails)
+                    result = formatted_output
+
                     return [TextContent(type="text", text=result)]
                 
                 elif name == "delete_email":
-                    if not arguments or "message_id" not in arguments:
-                        raise ValueError("message_id is required")
+                    if not arguments:
+                        raise ValueError("Either message_id or position is required")
 
-                    message_id = arguments["message_id"]
+                    # Get message_id either directly or from position mapping
+                    message_id = arguments.get("message_id")
+                    position = arguments.get("position")
+
+                    if not message_id and not position:
+                        raise ValueError("Either message_id or position is required")
+
+                    if position and not message_id:
+                        if position not in self.email_position_map:
+                            raise ValueError(f"Position {position} not found in current email list. Please run 'list emails' first.")
+                        message_id = self.email_position_map[position]
+
                     result = self.gmail_client.delete_email(message_id)
 
                     if result["success"]:
+                        subject_text = f" - {result['subject']}" if result.get('subject') else ""
                         return [TextContent(
                             type="text",
-                            text=f"Email with ID {message_id} has been moved to trash."
+                            text=f"🗑️ Deleted: {result.get('subject', 'Unknown Subject')}"
                         )]
                     else:
                         return [TextContent(
@@ -145,21 +165,32 @@ class GmailMCPServer:
                         )]
                 
                 elif name == "archive_email":
-                    if not arguments or "message_id" not in arguments:
-                        raise ValueError("message_id is required")
-                    
-                    message_id = arguments["message_id"]
-                    success = self.gmail_client.archive_email(message_id)
-                    
-                    if success:
+                    if not arguments:
+                        raise ValueError("Either message_id or position is required")
+
+                    # Get message_id either directly or from position mapping
+                    message_id = arguments.get("message_id")
+                    position = arguments.get("position")
+
+                    if not message_id and not position:
+                        raise ValueError("Either message_id or position is required")
+
+                    if position and not message_id:
+                        if position not in self.email_position_map:
+                            raise ValueError(f"Position {position} not found in current email list. Please run 'list emails' first.")
+                        message_id = self.email_position_map[position]
+
+                    result = self.gmail_client.archive_email(message_id)
+
+                    if result["success"]:
                         return [TextContent(
                             type="text",
-                            text=f"Email with ID {message_id} has been archived (removed from inbox)."
+                            text=f"📁 Archived: {result.get('subject', 'Unknown Subject')}"
                         )]
                     else:
                         return [TextContent(
                             type="text",
-                            text=f"Failed to archive email with ID {message_id}."
+                            text=f"Failed to archive email with ID {message_id}. Error: {result['error']}"
                         )]
                 
                 else:
@@ -170,7 +201,43 @@ class GmailMCPServer:
                     type="text",
                     text=f"Error executing {name}: {str(e)}"
                 )]
-    
+
+    def _format_email_list(self, emails: list) -> str:
+        """Format email list as simple numbered list with raw email data.
+
+        All categorization, summarization, and priority analysis is handled by the AI model.
+        """
+        if not emails:
+            return "No unread emails found."
+
+        # Clear previous position mapping
+        self.email_position_map = {}
+
+        result = f"Found {len(emails)} unread emails:\n\n"
+
+        for i, email in enumerate(emails, 1):
+            # Store position to email ID mapping
+            self.email_position_map[i] = email['id']
+
+            subject = email.get('subject', 'No Subject')
+            sender = email.get('sender', 'Unknown Sender')
+            date = email.get('date', 'Unknown Date')
+            body = email.get('body', '')
+            snippet = email.get('snippet', '')
+
+            result += f"{i}: {subject}\n"
+            result += f"   From: {sender}\n"
+            result += f"   Date: {date}\n"
+            if snippet:
+                result += f"   Snippet: {snippet}\n"
+            if body and body != "No readable content":
+                # Limit body preview to first 200 characters
+                body_preview = body[:200] + "..." if len(body) > 200 else body
+                result += f"   Body: {body_preview}\n"
+            result += "\n"
+
+        return result.rstrip()
+
     async def run(self):
         """Run the MCP server."""
         async with stdio_server() as (read_stream, write_stream):
