@@ -73,10 +73,9 @@ Found X unread emails:
 ### 3. Automated Actions Sgugestions
 
 #### Automatic Deletion Targets:
-- **Cluster Service provisioning error emails** - Delete immediately when detected
-- Look for patterns like "provisioning failed", "cluster error", "service unavailable"
-- **Minor RH Jira updates** - Suggest deletion for single-word/single-line changes
-- **Routine status notifications** - Delete automated minor status updates with no actionable content
+- **Minor RH Jira updates ONLY** - Suggest deletion for single-word/single-line changes in JIRA issues
+- **Examples of deletable JIRA updates**: Status changed from "Open" to "In Progress", Assignee changed to "John Doe"
+- **DO NOT suggest deletion for non-JIRA emails** - Only propose deletion for routine JIRA status updates
 
 #### Automatic Archive Suggestions:
 - **Calendar emails** - Suggest archiving meeting invites, calendar updates, etc.

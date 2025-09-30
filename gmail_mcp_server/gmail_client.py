@@ -4,6 +4,7 @@ import os
 import json
 import base64
 import sys
+from pathlib import Path
 from typing import List, Dict, Any, Optional
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -22,8 +23,20 @@ class GmailClient:
     
     def __init__(self, credentials_path: str = "credentials.json", token_path: str = "token.json", auto_authenticate: bool = False):
         """Initialize Gmail client with authentication."""
-        self.credentials_path = credentials_path
-        self.token_path = token_path
+        # Get the directory where this code file resides
+        code_dir = Path(__file__).parent.parent
+
+        # Convert relative paths to absolute paths based on code location
+        if not os.path.isabs(credentials_path):
+            self.credentials_path = str(code_dir / credentials_path)
+        else:
+            self.credentials_path = credentials_path
+
+        if not os.path.isabs(token_path):
+            self.token_path = str(code_dir / token_path)
+        else:
+            self.token_path = token_path
+
         self.service = None
         self._authenticated = False
 
