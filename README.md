@@ -70,11 +70,26 @@ Place the `.mcp.json` file in your home directory or specify the path when runni
 
 ### Example Usage
 
-Once configured, you can use the Gmail MCP server with AI assistants by asking questions like:
-- "Show me my unread emails"
-- "List emails with 'urgent' in the subject"
-- "Delete the email with ID 123456789abcdef"
-- "Archive all emails from john@example.com"
+Once configured, you can use the Gmail MCP server with AI assistants with these commands:
+
+#### Basic Email Management
+- **"list emails"** - Quick command to show all unread emails with smart categorization
+- **"Show me my unread emails"** - Full command to display unread emails
+- **"List emails with 'urgent' in the subject"** - Filter emails by subject content
+
+#### Email Actions by Position Number
+- **"delete email 1, 4, 6"** - Delete specific emails using their position numbers from the email list
+- **"archive email 3"** - Archive a single email by position number
+- **"delete emails 2, 5, 7"** - Delete multiple emails by their list positions
+
+#### Bulk Operations by Category
+- **"archive all meeting updates"** - Archive all emails in the "Meeting Updates" group
+- **"delete all social media notifications"** - Delete all emails in the "Social Media" group
+- **"apply recommendations"** - Execute all suggested actions (archive/delete) that the AI has identified
+
+#### Advanced Filtering
+- **"Delete the email with ID 123456789abcdef"** - Delete by specific Gmail message ID
+- **"Archive all emails from john@example.com"** - Archive emails from specific sender
 
 ## AI Assistant System Prompts
 
