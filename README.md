@@ -91,25 +91,27 @@ Once configured, you can use the Gmail MCP server with AI assistants with these 
 - **"Delete the email with ID 123456789abcdef"** - Delete by specific Gmail message ID
 - **"Archive all emails from john@example.com"** - Archive emails from specific sender
 
-## AI Assistant System Prompts
+## AI Assistant Commands
 
-To enhance your AI assistant's Gmail management capabilities, you can use the provided system prompt file with different AI coding assistants:
+This project includes pre-configured command files for different AI assistants to provide intelligent Gmail management capabilities:
 
-### Claude Code
-Rename `gmail_mcp_prompt.md` to `CLAUDE.md` in your project directory. Claude Code will automatically use this file as system instructions.
-
-### Gemini CLI
-Rename `gmail_mcp_prompt.md` to `gemini.md` in your project directory. Configure Gemini CLI to use this file as your system prompt.
-
-### Cursor
-Copy the contents of `gmail_mcp_prompt.md` to your Cursor Rules configuration. This will enable intelligent Gmail management features in Cursor.
-
-The system prompt provides:
+### Claude CLI
+The `.claude/commands/emails.md` file provides comprehensive Gmail management instructions for Claude CLI. This command enables:
 - Smart email categorization and grouping
 - Priority rating (Minor/Good to Know/Major)
 - Automated action suggestions (archive/delete)
 - Dynamic email summaries
 - Intelligent filtering for different email types
+
+### Gemini CLI
+The `.gemini/commands/emails.toml` file provides the same Gmail management capabilities for Gemini CLI users. The configuration includes:
+- Email listing and analysis workflows
+- Dynamic grouping based on email content
+- Priority-based action recommendations
+- Support for bulk operations and individual email actions
+
+### Cursor
+*Coming soon* - Cursor integration is planned for future implementation.
 
 ## Available Tools
 
