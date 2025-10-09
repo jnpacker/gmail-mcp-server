@@ -48,3 +48,7 @@ Thumbs.db
 CLAUDE.md
 gemini.md
 GEMINI.md
+./claude
+!./claude/commands/
+./gemini
+!./gemini/commands/
