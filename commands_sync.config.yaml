@@ -1,0 +1,35 @@
+# Configuration for syncing command prompt files across providers
+# Each entry defines a command "core name" and the files that must stay in sync
+# along with provider-specific header/footers.
+
+commands:
+  - name: emails
+    files:
+      claude:
+        path: .claude/commands/emails.md
+        header: |
+          ---
+          argument-hint: Day reference, like today, tomorrow, yesterday, next Tuesday
+          description: Lists Google Calendar events
+          allowed-tools: [list_unread_emails, delete_email, archive_email]
+          ---
+        footer: ""
+      cursor:
+        path: .cursor/commands/emails.md
+        header: ""
+        footer: ""
+      gemini:
+        path: .gemini/commands/emails.toml
+        header: |
+          description = "emails"
+          prompt = """
+        footer: '"""'
+
+# Behavior tuning
+# - primary_provider is the canonical source when a sync conflict occurs
+# - If omitted, the most recently modified of the three becomes primary
+primary_provider: auto
+
+# Notes:
+# - The script should always preserve existing indentation and whitespace.
+# - Gemini TOML prompts must end with a closing triple quote on the last line.
