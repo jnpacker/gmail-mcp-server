@@ -158,17 +158,33 @@ Archives an email (removes from inbox) by ID.
 
 ## Authentication
 
-On first run, the server will:
-1. Check for existing authentication token (`token.json`)
-2. If not found, open a browser for OAuth 2.0 authentication
-3. Save the authentication token for future use
+### Initial Setup
 
-For headless operation, you can authenticate manually:
+On first run, the server requires authentication. Use the provided authentication helper:
+
 ```bash
-python -c "from gmail_mcp_server.gmail_client import GmailClient; import os; os.environ['GMAIL_INTERACTIVE_AUTH'] = '1'; GmailClient()"
+gmail-mcp-auth
 ```
 
-Required Gmail API scopes:
+This will:
+1. Open a browser window for OAuth 2.0 authentication
+2. Request permission to access your Gmail account
+3. Save the authentication token to `token.json` for future use
+
+If you installed in development mode, you can also run:
+```bash
+python -m gmail_mcp_server.auth
+```
+
+### How It Works
+
+- The server checks for an existing authentication token (`token.json`) on startup
+- If the token exists and is valid, the server uses it automatically
+- If the token is expired but has a refresh token, it refreshes automatically
+- If no token exists, the server will request authentication using the `gmail-mcp-auth` command
+
+### Required Gmail API Scopes
+
 - `https://www.googleapis.com/auth/gmail.readonly` - Read emails
 - `https://www.googleapis.com/auth/gmail.modify` - Delete and archive emails
 
