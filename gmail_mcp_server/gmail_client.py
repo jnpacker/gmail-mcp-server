@@ -15,12 +15,12 @@ from googleapiclient.errors import HttpError
 
 class GmailClient:
     """Gmail API client for managing emails."""
-    
+
     SCOPES = [
         'https://www.googleapis.com/auth/gmail.readonly',
         'https://www.googleapis.com/auth/gmail.modify'
     ]
-    
+
     def __init__(self, credentials_path: str = "credentials.json", token_path: str = "token.json", auto_authenticate: bool = False):
         """Initialize Gmail client with authentication."""
         # Get the directory where this code file resides
@@ -42,7 +42,7 @@ class GmailClient:
 
         if auto_authenticate:
             self._authenticate()
-    
+
     def _authenticate(self):
         """Authenticate and build Gmail service."""
         creds = None
@@ -97,7 +97,7 @@ class GmailClient:
         """Ensure the client is authenticated before making API calls."""
         if not self._authenticated:
             self._authenticate()
-    
+
     def list_unread_emails(self, subject_filter: Optional[str] = None, max_results: int = 50) -> List[Dict[str, Any]]:
         """
         List unread emails in inbox, optionally filtered by subject.
@@ -107,33 +107,33 @@ class GmailClient:
             max_results: Maximum number of emails to return
 
         Returns:
-            List of email dictionaries with id, subject, sender, date, and body
+            List of email dictionaries with id, threadId, labelIds, subject, sender, date, and body
         """
         self._ensure_authenticated()
         try:
             query = "is:unread in:inbox"
             if subject_filter:
                 query += f' subject:"{subject_filter}"'
-            
+
             result = self.service.users().messages().list(
                 userId='me',
                 q=query,
                 maxResults=max_results
             ).execute()
-            
+
             messages = result.get('messages', [])
             emails = []
-            
+
             for message in messages:
                 email_data = self._get_email_details(message['id'])
                 if email_data:
                     emails.append(email_data)
-            
+
             return emails
-            
+
         except HttpError as error:
             raise Exception(f"An error occurred while listing emails: {error}")
-    
+
     def _get_email_details(self, message_id: str) -> Optional[Dict[str, Any]]:
         """Get detailed information about a specific email."""
         self._ensure_authenticated()
@@ -143,31 +143,33 @@ class GmailClient:
                 id=message_id,
                 format='full'
             ).execute()
-            
+
             headers = message['payload'].get('headers', [])
             subject = next((h['value'] for h in headers if h['name'] == 'Subject'), 'No Subject')
             sender = next((h['value'] for h in headers if h['name'] == 'From'), 'Unknown Sender')
             date = next((h['value'] for h in headers if h['name'] == 'Date'), 'Unknown Date')
-            
+
             body = self._extract_email_body(message['payload'])
-            
+
             return {
                 'id': message_id,
+                'threadId': message.get('threadId', ''),
+                'labelIds': message.get('labelIds', []),
                 'subject': subject,
                 'sender': sender,
                 'date': date,
                 'body': body,
                 'snippet': message.get('snippet', '')
             }
-            
+
         except HttpError as error:
             print(f"An error occurred while getting email details: {error}")
             return None
-    
+
     def _extract_email_body(self, payload: Dict[str, Any]) -> str:
         """Extract email body from message payload."""
         body = ""
-        
+
         if 'parts' in payload:
             for part in payload['parts']:
                 if part['mimeType'] == 'text/plain':
@@ -184,12 +186,188 @@ class GmailClient:
                 data = payload['body'].get('data', '')
                 if data:
                     body = base64.urlsafe_b64decode(data).decode('utf-8')
-        
+
         return body or "No readable content"
-    
-    def delete_email(self, message_id: str) -> dict:
+
+    def list_labels(self) -> List[Dict[str, str]]:
+        """List all Gmail labels.
+
+        Returns:
+            List of dicts with id, name, type keys.
         """
-        Move an email to trash and mark it as read.
+        self._ensure_authenticated()
+        try:
+            result = self.service.users().labels().list(userId='me').execute()
+            labels = result.get('labels', [])
+            return [{'id': l['id'], 'name': l['name'], 'type': l.get('type', '')} for l in labels]
+        except HttpError as error:
+            raise Exception(f"An error occurred while listing labels: {error}")
+
+    def create_label(self, name: str, background_color: str = None, text_color: str = None) -> Dict[str, str]:
+        """Create a new Gmail label.
+
+        Args:
+            name: The label name to create.
+            background_color: Optional hex color for label background (e.g. '#4a86e8').
+            text_color: Optional hex color for label text (e.g. '#ffffff').
+
+        Returns:
+            Dict with id and name of the created label.
+        """
+        self._ensure_authenticated()
+        try:
+            label_body = {
+                'name': name,
+                'labelListVisibility': 'labelShow',
+                'messageListVisibility': 'show'
+            }
+            if background_color and text_color:
+                label_body['color'] = {
+                    'backgroundColor': background_color,
+                    'textColor': text_color
+                }
+            result = self.service.users().labels().create(userId='me', body=label_body).execute()
+            return {'id': result['id'], 'name': result['name']}
+        except HttpError as error:
+            raise Exception(f"An error occurred while creating label: {error}")
+
+    def _resolve_label_name_to_id(self, name: str) -> str:
+        """Resolve a label name to its ID (case-insensitive).
+
+        Args:
+            name: Label name to resolve.
+
+        Returns:
+            The label ID.
+
+        Raises:
+            ValueError: If the label name is not found.
+        """
+        labels = self.list_labels()
+        name_lower = name.lower()
+        for label in labels:
+            if label['name'].lower() == name_lower:
+                return label['id']
+        raise ValueError(f"Label not found: {name}")
+
+    def modify_labels(self, message_ids: List[str], add_labels: List[str] = None, remove_labels: List[str] = None) -> List[Dict[str, Any]]:
+        """Batch add/remove labels on messages.
+
+        Args:
+            message_ids: List of message IDs to modify.
+            add_labels: Label names to add.
+            remove_labels: Label names to remove.
+
+        Returns:
+            List of result dicts with success, message_id, and error fields.
+        """
+        self._ensure_authenticated()
+        add_ids = [self._resolve_label_name_to_id(n) for n in (add_labels or [])]
+        remove_ids = [self._resolve_label_name_to_id(n) for n in (remove_labels or [])]
+
+        results = []
+        for mid in message_ids:
+            try:
+                body = {}
+                if add_ids:
+                    body['addLabelIds'] = add_ids
+                if remove_ids:
+                    body['removeLabelIds'] = remove_ids
+                self.service.users().messages().modify(userId='me', id=mid, body=body).execute()
+                results.append({'success': True, 'message_id': mid, 'error': None})
+            except HttpError as error:
+                results.append({'success': False, 'message_id': mid, 'error': str(error)})
+        return results
+
+    def mark_as_read(self, message_ids: List[str]) -> List[Dict[str, Any]]:
+        """Batch mark messages as read by removing the UNREAD label.
+
+        Args:
+            message_ids: List of message IDs to mark as read.
+
+        Returns:
+            List of result dicts with success, message_id, and error fields.
+        """
+        self._ensure_authenticated()
+        results = []
+        for mid in message_ids:
+            try:
+                self.service.users().messages().modify(
+                    userId='me', id=mid,
+                    body={'removeLabelIds': ['UNREAD']}
+                ).execute()
+                results.append({'success': True, 'message_id': mid, 'error': None})
+            except HttpError as error:
+                results.append({'success': False, 'message_id': mid, 'error': str(error)})
+        return results
+
+    def delete_emails(self, message_ids: List[str]) -> List[Dict[str, Any]]:
+        """Batch move emails to trash and mark as read.
+
+        Args:
+            message_ids: List of message IDs to trash.
+
+        Returns:
+            List of result dicts with success, subject, message_id, and error fields.
+        """
+        self._ensure_authenticated()
+        results = []
+        for mid in message_ids:
+            try:
+                email_details = self._get_email_details(mid)
+                subject = email_details.get('subject', 'No Subject') if email_details else 'Unknown Subject'
+                if len(subject) > 60:
+                    subject = subject[:57] + "..."
+
+                self.service.users().messages().modify(
+                    userId='me', id=mid,
+                    body={
+                        'addLabelIds': ['TRASH'],
+                        'removeLabelIds': ['UNREAD']
+                    }
+                ).execute()
+                results.append({'success': True, 'subject': subject, 'message_id': mid, 'error': None})
+            except HttpError as error:
+                error_details = f"HTTP {error.resp.status}: {error.error_details if hasattr(error, 'error_details') else str(error)}"
+                results.append({'success': False, 'subject': None, 'message_id': mid, 'error': error_details})
+            except Exception as error:
+                error_details = f"Unexpected error: {str(error)} ({type(error).__name__})"
+                results.append({'success': False, 'subject': None, 'message_id': mid, 'error': error_details})
+        return results
+
+    def archive_emails(self, message_ids: List[str]) -> List[Dict[str, Any]]:
+        """Batch archive emails (remove from inbox).
+
+        Args:
+            message_ids: List of message IDs to archive.
+
+        Returns:
+            List of result dicts with success, subject, message_id, and error fields.
+        """
+        self._ensure_authenticated()
+        results = []
+        for mid in message_ids:
+            try:
+                email_details = self._get_email_details(mid)
+                subject = email_details.get('subject', 'No Subject') if email_details else 'Unknown Subject'
+                if len(subject) > 60:
+                    subject = subject[:57] + "..."
+
+                self.service.users().messages().modify(
+                    userId='me', id=mid,
+                    body={'removeLabelIds': ['INBOX', 'UNREAD']}
+                ).execute()
+                results.append({'success': True, 'subject': subject, 'message_id': mid, 'error': None})
+            except HttpError as error:
+                error_details = f"HTTP {error.resp.status}: {error.error_details if hasattr(error, 'error_details') else str(error)}"
+                results.append({'success': False, 'subject': None, 'message_id': mid, 'error': error_details})
+            except Exception as error:
+                error_details = f"Unexpected error: {str(error)} ({type(error).__name__})"
+                results.append({'success': False, 'subject': None, 'message_id': mid, 'error': error_details})
+        return results
+
+    def delete_email(self, message_id: str) -> dict:
+        """Move an email to trash and mark it as read.
 
         Args:
             message_id: The ID of the email to move to trash
@@ -197,38 +375,10 @@ class GmailClient:
         Returns:
             Dict with 'success' bool, 'subject' string, and 'error' string if failed
         """
-        self._ensure_authenticated()
-        try:
-            # Get email subject before deleting
-            email_details = self._get_email_details(message_id)
-            subject = email_details.get('subject', 'No Subject') if email_details else 'Unknown Subject'
+        return self.delete_emails([message_id])[0]
 
-            # Truncate subject to prevent line wrapping (max 60 characters)
-            if len(subject) > 60:
-                subject = subject[:57] + "..."
-
-            self.service.users().messages().modify(
-                userId='me',
-                id=message_id,
-                body={
-                    'addLabelIds': ['TRASH'],
-                    'removeLabelIds': ['UNREAD']
-                }
-            ).execute()
-            return {"success": True, "subject": subject, "error": None}
-
-        except HttpError as error:
-            error_details = f"HTTP {error.resp.status}: {error.error_details if hasattr(error, 'error_details') else str(error)}"
-            print(f"An error occurred while moving email to trash: {error_details}")
-            return {"success": False, "subject": None, "error": error_details}
-        except Exception as error:
-            error_details = f"Unexpected error: {str(error)} ({type(error).__name__})"
-            print(f"An error occurred while moving email to trash: {error_details}")
-            return {"success": False, "subject": None, "error": error_details}
-    
     def archive_email(self, message_id: str) -> dict:
-        """
-        Archive an email (remove from inbox).
+        """Archive an email (remove from inbox).
 
         Args:
             message_id: The ID of the email to archive
@@ -236,28 +386,4 @@ class GmailClient:
         Returns:
             Dict with 'success' bool, 'subject' string, and 'error' string if failed
         """
-        self._ensure_authenticated()
-        try:
-            # Get email subject before archiving
-            email_details = self._get_email_details(message_id)
-            subject = email_details.get('subject', 'No Subject') if email_details else 'Unknown Subject'
-
-            # Truncate subject to prevent line wrapping (max 60 characters)
-            if len(subject) > 60:
-                subject = subject[:57] + "..."
-
-            self.service.users().messages().modify(
-                userId='me',
-                id=message_id,
-                body={'removeLabelIds': ['INBOX', 'UNREAD']}
-            ).execute()
-            return {"success": True, "subject": subject, "error": None}
-
-        except HttpError as error:
-            error_details = f"HTTP {error.resp.status}: {error.error_details if hasattr(error, 'error_details') else str(error)}"
-            print(f"An error occurred while archiving email: {error_details}")
-            return {"success": False, "subject": None, "error": error_details}
-        except Exception as error:
-            error_details = f"Unexpected error: {str(error)} ({type(error).__name__})"
-            print(f"An error occurred while archiving email: {error_details}")
-            return {"success": False, "subject": None, "error": error_details}
+        return self.archive_emails([message_id])[0]
