@@ -53,3 +53,5 @@ GEMINI.md
 ./gemini
 !./gemini/commands/
 .sync-commands/
+logs/
+tests/test_server.py
