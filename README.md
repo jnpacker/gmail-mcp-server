@@ -70,48 +70,8 @@ Place the `.mcp.json` file in your home directory or specify the path when runni
 
 ### Example Usage
 
-Once configured, you can use the Gmail MCP server with AI assistants with these commands:
+Once configured, you can use the Gmail MCP server with AI assistants by passing it in your client configuration.
 
-#### Basic Email Management
-- **"list emails"** - Quick command to show all unread emails with smart categorization
-- **"Show me my unread emails"** - Full command to display unread emails
-- **"List emails with 'urgent' in the subject"** - Filter emails by subject content
-
-#### Email Actions by Position Number
-- **"delete email 1, 4, 6"** - Delete specific emails using their position numbers from the email list
-- **"archive email 3"** - Archive a single email by position number
-- **"delete emails 2, 5, 7"** - Delete multiple emails by their list positions
-
-#### Bulk Operations by Category
-- **"archive all meeting updates"** - Archive all emails in the "Meeting Updates" group
-- **"delete all social media notifications"** - Delete all emails in the "Social Media" group
-- **"apply recommendations"** - Execute all suggested actions (archive/delete) that the AI has identified
-
-#### Advanced Filtering
-- **"Delete the email with ID 123456789abcdef"** - Delete by specific Gmail message ID
-- **"Archive all emails from john@example.com"** - Archive emails from specific sender
-
-## AI Assistant Commands
-
-This project includes pre-configured command files for different AI assistants to provide intelligent Gmail management capabilities:
-
-### Claude CLI
-The `.claude/commands/emails.md` file provides comprehensive Gmail management instructions for Claude CLI. This command enables:
-- Smart email categorization and grouping
-- Priority rating (Minor/Good to Know/Major)
-- Automated action suggestions (archive/delete)
-- Dynamic email summaries
-- Intelligent filtering for different email types
-
-### Gemini CLI
-The `.gemini/commands/emails.toml` file provides the same Gmail management capabilities for Gemini CLI users. The configuration includes:
-- Email listing and analysis workflows
-- Dynamic grouping based on email content
-- Priority-based action recommendations
-- Support for bulk operations and individual email actions
-
-### Cursor
-*Coming soon* - Cursor integration is planned for future implementation.
 
 ## Available Tools
 
