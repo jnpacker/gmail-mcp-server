@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gmail Triage Dashboard</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📧</text></svg>">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ cache_bust }}">
+</head>
+<body>
+    <div class="container">
+        <!-- Header Bar -->
+        <div class="header">
+            <div class="header-content">
+                <h1>Gmail Triage Dashboard</h1>
+                <div id="headerSpinner" class="header-spinner hidden">
+                    <div class="mini-spinner"></div>
+                    <span>Triaging... <span id="loadingTimer"></span></span>
+                </div>
+                <div class="header-stats">
+                    <span class="stat">
+                        Last sync: <span id="lastSync">Never</span>
+                    </span>
+                    <span class="stat">
+                        New emails: <span id="totalEmails">-</span>
+                    </span>
+                    <span class="stat">
+                        Next sync: <span id="nextSync">-</span>
+                    </span>
+                    <span class="stat stat-model">
+                        Model:
+                        <select id="modelSelect" class="model-select">
+                            <option value="claude-haiku-4-5">Haiku 4.5</option>
+                            <option value="claude-sonnet-4-6">Sonnet 4.6</option>
+                            <option value="claude-opus-4-6">Opus 4.6</option>
+                        </select>
+                    </span>
+                </div>
+            </div>
+            <button id="refreshBtn" class="refresh-btn">⟳ Refresh Now</button>
+        </div>
+
+        <!-- Quick Links Section -->
+        <div class="card quick-links">
+            <div class="card-header-row">
+                <div class="card-header-left">
+                    <h3>🔗 Quick Links</h3>
+                    <label class="toggle-switch" title="Show only labels with unread emails">
+                        <input type="checkbox" id="unreadOnlyToggle" checked>
+                        <span class="toggle-slider"></span>
+                        <span class="toggle-label">Unread only</span>
+                    </label>
+                </div>
+                <div class="card-header-right">
+                    <label class="toggle-switch" title="Auto-open Gmail when clicking a link">
+                        <input type="checkbox" id="autoOpenToggle">
+                        <span class="toggle-slider"></span>
+                        <span class="toggle-label">Auto-open Gmail</span>
+                    </label>
+                    <span id="loadTime" class="load-time"></span>
+                </div>
+            </div>
+            <div id="quickLinksContainer" class="quick-links-container">
+            </div>
+        </div>
+
+        <!-- Summary Pane -->
+        <div class="summary-pane">
+            <h2>📧 Email Summary</h2>
+            <div class="summary-split">
+                <div id="summaryContainer" class="summary-container">
+                    <div class="summary-hint"><div class="summary-hint-icon">🔗</div>Click a quick link to see email summaries</div>
+                </div>
+                <div id="emailBodyContainer" class="email-body-container">
+                    <div class="summary-hint"><div class="summary-hint-icon">🔍</div>Click an email to view its contents</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom Cards: Auto-Clean and Archived -->
+        <div class="cards-row">
+            <div class="card deleted">
+                <h3>🗑️ Deleted Items</h3>
+                <div class="card-content">
+                    <div id="deletedItems" class="archived-items-list"></div>
+                </div>
+            </div>
+
+            <div class="card archived">
+                <h3>📂 Archived Items</h3>
+                <div class="card-content">
+                    <div id="archivedItems" class="archived-items-list"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='dashboard.js') }}?v={{ cache_bust }}"></script>
+</body>
+</html>
