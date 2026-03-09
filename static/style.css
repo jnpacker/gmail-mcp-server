@@ -876,6 +876,7 @@ body {
 
 .loading-with-spinner {
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 12px;
@@ -887,7 +888,6 @@ body {
 .spinner-email {
     font-size: 32px;
     display: inline-block;
-    animation: spin 1.2s linear infinite;
 }
 
 .empty-inbox {

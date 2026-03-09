@@ -186,7 +186,6 @@ def parse_triage_output(output):
         # ── Pass 3: AUTO-CLEANED section ──
         in_auto_cleaned = False
         in_archived_sub = False
-        in_deleted_sub = False
         for line in lines:
             if 'AUTO-CLEANED' in line or 'AUTO-CLEAN' in line:
                 in_auto_cleaned = True
@@ -197,9 +196,7 @@ def parse_triage_output(output):
                 stripped = line.strip()
                 if re.search(r'Archived\s*[\(\[]', stripped, re.IGNORECASE):
                     in_archived_sub = True
-                    in_deleted_sub = False
                 elif re.search(r'Deleted\s*[\(\[]', stripped, re.IGNORECASE):
-                    in_deleted_sub = True
                     in_archived_sub = False
                 elif stripped.startswith('·'):
                     item = stripped[1:].strip()
