@@ -41,8 +41,6 @@ def run_triage():
 
         if result.returncode != 0:
             print(f"Triage error (code {result.returncode})")
-            print(f"  stderr: {result.stderr[:300]!r}")
-            print(f"  stdout: {result.stdout[:300]!r}")
             return {
                 'labeled_groups': [],
                 'auto_cleaned': {'archived': [], 'deleted': []},
@@ -55,12 +53,10 @@ def run_triage():
         model = triage_model
 
         print(f"[triage] model={model}")
-        print(f"[triage] stdout preview: {result.stdout[:300]!r}")
 
         parsed = parse_triage_output(triage_text)
         if not parsed:
             print("Failed to parse triage output")
-            print(f"Output was: {triage_text[:500]}")
             return {
                 'labeled_groups': [],
                 'auto_cleaned': {'archived': [], 'deleted': []},

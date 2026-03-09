@@ -673,16 +673,17 @@ function showEmailBody(email) {
     const isHtml = /<[a-z][\s\S]*>/i.test(body);
 
     if (isHtml) {
+        const sanitized = sanitizeEmailHtml(body);
         const iframe = document.createElement('iframe');
         iframe.className = 'email-iframe';
-        iframe.sandbox = 'allow-same-origin';
+        iframe.sandbox = '';  // No special permissions for iframe
         iframe.srcdoc = `
             <html><head><style>
                 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
                        font-size: 14px; line-height: 1.6; color: #111827; margin: 0; padding: 0; }
                 a { color: #3b82f6; }
                 img { max-width: 100%; height: auto; }
-            </style></head><body>${body}</body></html>
+            </style></head><body>${sanitized}</body></html>
         `;
         iframe.onload = () => {
             try {
@@ -722,9 +723,9 @@ async function emailAction(action, email, itemEl) {
             }
             buttons.forEach(b => b.remove());
 
-            // Decrement the quick link badge immediately
+            // Decrement the quick link badge only if email was unread
             const groupName = currentSummaryGroup?.name;
-            if (groupName) {
+            if (groupName && email.isUnread) {
                 const ql = Array.from(quickLinksContainer.querySelectorAll('.quick-link'))
                     .find(el => el.dataset.label === groupName);
                 if (ql) {
@@ -732,8 +733,12 @@ async function emailAction(action, email, itemEl) {
                     if (badge) {
                         const current = parseInt(badge.textContent, 10) || 0;
                         const next = Math.max(0, current - 1);
-                        badge.textContent = next;
-                        badge.title = `${next} unread`;
+                        if (next === 0) {
+                            badge.style.display = 'none';
+                        } else {
+                            badge.textContent = next;
+                            badge.title = `${next} unread`;
+                        }
                     }
                 }
             }
@@ -844,4 +849,32 @@ function escapeHtml(text) {
         "'": '&#039;'
     };
     return text.replace(/[&<>"']/g, m => map[m]);
+}
+
+/**
+ * Sanitize HTML email body to remove dangerous tags and remote resource references.
+ * Removes: <script>, <iframe>, <object>, <embed>, <link>, <img>, <source>, <track>, srcset, on* attributes.
+ * Rewrites: data:// and mailto: URLs are allowed; http(s)://, //, and other external URLs are removed from src/href.
+ * Returns: sanitized HTML string, or null if unsafe content detected after cleaning.
+ */
+function sanitizeEmailHtml(html) {
+    // Check for obviously dangerous tags that we cannot safely allow
+    const dangerousTags = /<(script|iframe|object|embed|link|img|source|track|meta|form|input|button|style)\b/gi;
+    if (dangerousTags.test(html)) {
+        // These tags are inherently dangerous; strip them all
+        html = html.replace(/<(script|iframe|object|embed|link|img|source|track)\b[^>]*>[\s\S]*?<\/\1>/gi, '');
+        html = html.replace(/<(meta|form|input|button|style)\b[^>]*>/gi, '');
+    }
+
+    // Remove srcset, src, href that point to external URLs (http://, https://, //, etc.)
+    // But allow data: URLs and mailto: links
+    html = html.replace(/\s+(srcset|src|href)=(['"])(?!(?:data:|mailto:))(?:https?:|\/\/)?[^'"]*\2/gi, '');
+
+    // Remove CSS url() references to external resources in inline styles
+    html = html.replace(/\burl\s*\(\s*(['"]?)(?!(?:data:))(?:https?:|\/\/)?[^)]*\1\s*\)/gi, '');
+
+    // Remove on* event handlers
+    html = html.replace(/\s+on\w+=(['"]).*?\1/gi, '');
+
+    return html;
 }
