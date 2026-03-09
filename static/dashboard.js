@@ -20,6 +20,8 @@ let loadingStartTime = null;
 let currentSummaryGroup = null;
 let manuallyArchived = []; // {id, subject, sender}
 let manuallyDeleted = []; // {id, subject, sender}
+let sessionAutoArchived = []; // accumulated auto-archived strings across triage runs
+let sessionAutoDeleted = [];  // accumulated auto-deleted strings across triage runs
 
 // DOM Elements
 const refreshBtn = document.getElementById('refreshBtn');
@@ -113,7 +115,7 @@ async function startRefreshCycle() {
         // First load — show loading message and header spinner
         quickLinksContainer.innerHTML = `
             <div class="loading-with-spinner">
-                <span class="spinner-email">📧</span>
+                <span class="spinner-email">⏳</span>
                 <span>Loading triage data...</span>
             </div>
         `;
@@ -179,7 +181,7 @@ async function triggerTriage(firstLoad = false) {
     if (firstLoad && !triageData) {
         quickLinksContainer.innerHTML = `
             <div class="loading-with-spinner">
-                <span class="spinner-email">📧</span>
+                <span class="spinner-email">⏳</span>
                 <span>Loading triage data...</span>
             </div>
         `;
@@ -301,6 +303,14 @@ function updateUI() {
         totalEmailsEl.textContent = newTotal;
     }
 
+    // Accumulate auto-cleaned items for the session (survive triage refreshes)
+    (triageData.auto_cleaned?.deleted || []).forEach(item => {
+        if (!sessionAutoDeleted.includes(item)) sessionAutoDeleted.push(item);
+    });
+    (triageData.auto_cleaned?.archived || []).forEach(item => {
+        if (!sessionAutoArchived.includes(item)) sessionAutoArchived.push(item);
+    });
+
     renderDeletedItems();
     renderArchivedItems();
     updateQuickLinks();
@@ -309,7 +319,7 @@ function updateUI() {
 function renderDeletedItems() {
     deletedItemsEl.innerHTML = '';
 
-    const autoDeleted = triageData?.auto_cleaned?.deleted || [];
+    const autoDeleted = sessionAutoDeleted;
 
     if (autoDeleted.length > 0) {
         const header = document.createElement('div');
@@ -335,7 +345,7 @@ function renderDeletedItems() {
                     <div class="archived-email-subject">${escapeHtml(subject)}</div>
                     ${detail ? `<div class="archived-email-sender">${escapeHtml(detail)}</div>` : ''}
                 </div>
-                <span class="archived-email-launch">↗</span>
+                <span class="archived-email-launch"><img src="/static/gmail-logo.png" height="14" alt="Gmail"> <span class="btn-gmail-arrow">↗</span></span>
             `;
             deletedItemsEl.appendChild(a);
         });
@@ -358,7 +368,7 @@ function renderDeletedItems() {
                     <div class="archived-email-subject">${escapeHtml(email.subject)}</div>
                     <div class="archived-email-sender">${escapeHtml(email.sender)}</div>
                 </div>
-                <span class="archived-email-launch">↗</span>
+                <span class="archived-email-launch"><img src="/static/gmail-logo.png" height="14" alt="Gmail"> <span class="btn-gmail-arrow">↗</span></span>
             `;
             deletedItemsEl.appendChild(a);
         });
@@ -378,7 +388,7 @@ function renderArchivedItems() {
 
     container.innerHTML = '';
 
-    const autoArchivedItems = triageData?.auto_cleaned?.archived || [];
+    const autoArchivedItems = sessionAutoArchived;
 
     // Auto-archived from triage
     if (autoArchivedItems.length > 0) {
@@ -403,7 +413,7 @@ function renderArchivedItems() {
                     <div class="archived-email-subject">${escapeHtml(subject)}</div>
                     ${sender ? `<div class="archived-email-sender">${escapeHtml(sender)}</div>` : ''}
                 </div>
-                <span class="archived-email-launch">↗</span>
+                <span class="archived-email-launch"><img src="/static/gmail-logo.png" height="14" alt="Gmail"> <span class="btn-gmail-arrow">↗</span></span>
             `;
             container.appendChild(a);
         });
@@ -427,7 +437,7 @@ function renderArchivedItems() {
                     <div class="archived-email-subject">${escapeHtml(email.subject)}</div>
                     <div class="archived-email-sender">${escapeHtml(email.sender)}</div>
                 </div>
-                <span class="archived-email-launch">↗</span>
+                <span class="archived-email-launch"><img src="/static/gmail-logo.png" height="14" alt="Gmail"> <span class="btn-gmail-arrow">↗</span></span>
             `;
             container.appendChild(a);
         });
@@ -500,7 +510,7 @@ async function updateQuickLinks() {
         const arrow = document.createElement('div');
         arrow.className = 'quick-link-icon';
         arrow.title = 'Open in Gmail';
-        arrow.textContent = '↗';
+        arrow.innerHTML = '<img src="/static/gmail-logo.png" height="14" alt="Gmail"> <span class="btn-gmail-arrow">↗</span>';
         arrow.addEventListener('click', (e) => {
             e.stopPropagation();
             openGmailUrl(gmailUrl);
@@ -579,7 +589,7 @@ async function fetchTotalCounts(linkElements, unreadOnly = true) {
 async function showSummary(group) {
     currentSummaryGroup = group;
     summaryContainer.innerHTML = '';
-    emailBodyContainer.innerHTML = '<p class="summary-hint">🔍 Click an email to view its contents</p>';
+    emailBodyContainer.innerHTML = '<div class="summary-hint"><div class="summary-hint-icon">🔍</div>Click an email to view its contents</div>';
 
     const title = document.createElement('h3');
     title.textContent = group.name.replace('Triage/', '');
@@ -618,6 +628,7 @@ async function showSummary(group) {
                             <div class="summary-item-meta">${escapeHtml(email.sender)}</div>
                         </div>
                         <div class="summary-item-actions">
+                            <a class="btn-gmail" href="https://mail.google.com/mail/u/0/#inbox/${email.id}" target="_blank" title="Open in Gmail"><img src="/static/gmail-logo.png" height="16" alt="Gmail"> <span class="btn-gmail-arrow">↗</span></a>
                             <button class="btn-archive" title="Archive" data-id="${email.id}">Archive</button>
                             <button class="btn-delete" title="Delete" data-id="${email.id}">Delete</button>
                         </div>
@@ -645,9 +656,9 @@ async function showSummary(group) {
         } else {
             const empty = document.createElement('p');
             empty.className = 'summary-hint';
-            empty.textContent = 'No emails in this group — all clear!';
+            empty.innerHTML = '<div class="summary-hint-icon">🔍</div>No emails in this group — all clear!';
             summaryContainer.appendChild(empty);
-            emailBodyContainer.innerHTML = '<p class="summary-hint">🔍 Click an email to view its contents</p>';
+            emailBodyContainer.innerHTML = '<div class="summary-hint"><div class="summary-hint-icon">🔍</div>Click an email to view its contents</div>';
         }
     } catch (error) {
         console.error('Error fetching emails for summary:', error);
@@ -769,7 +780,7 @@ async function emailAction(action, email, itemEl) {
                     empty.className = 'summary-hint';
                     empty.textContent = 'No emails in this group — all clear!';
                     summaryContainer.appendChild(empty);
-                    emailBodyContainer.innerHTML = '<p class="summary-hint">🔍 Click an email to view its contents</p>';
+                    emailBodyContainer.innerHTML = '<div class="summary-hint"><div class="summary-hint-icon">🔍</div>Click an email to view its contents</div>';
                 }
             }, 600);
         } else {

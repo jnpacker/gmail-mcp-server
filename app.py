@@ -8,6 +8,7 @@ import os
 import re
 import json
 import subprocess
+import threading
 from datetime import datetime, timedelta
 from flask import Flask, render_template, jsonify, request
 from pathlib import Path
@@ -27,6 +28,7 @@ triage_cache = {
     'next_sync': None,
     'model': None,
 }
+triage_lock = threading.Lock()
 
 def run_triage():
     """Execute the triage command and parse results"""
@@ -254,29 +256,35 @@ def get_triage():
 @app.route('/api/triage/refresh', methods=['POST'])
 def refresh_triage():
     """API endpoint to manually trigger triage"""
-    print("=== Triage refresh triggered ===")
-    data = run_triage()
+    if not triage_lock.acquire(blocking=False):
+        return jsonify({'success': False, 'error': 'Triage already in progress'}), 409
 
-    if data:
-        current_time = datetime.now()
-        triage_cache['data'] = data
-        triage_cache['timestamp'] = current_time.isoformat()
-        triage_cache['next_sync'] = (current_time + timedelta(minutes=15)).isoformat()
-        triage_cache['model'] = data.get('model')
-        print("Triage succeeded")
-        return jsonify({
-            'success': True,
-            'data': data,
-            'timestamp': triage_cache['timestamp'],
-            'next_sync': triage_cache['next_sync'],
-            'model': triage_cache['model'],
-        })
-    else:
-        print("Triage failed - no data returned")
-        return jsonify({
-            'success': False,
-            'error': 'Failed to run triage. Check console output for details.'
-        }), 500
+    try:
+        print("=== Triage refresh triggered ===")
+        data = run_triage()
+
+        if data:
+            current_time = datetime.now()
+            triage_cache['data'] = data
+            triage_cache['timestamp'] = current_time.isoformat()
+            triage_cache['next_sync'] = (current_time + timedelta(minutes=15)).isoformat()
+            triage_cache['model'] = data.get('model')
+            print("Triage succeeded")
+            return jsonify({
+                'success': True,
+                'data': data,
+                'timestamp': triage_cache['timestamp'],
+                'next_sync': triage_cache['next_sync'],
+                'model': triage_cache['model'],
+            })
+        else:
+            print("Triage failed - no data returned")
+            return jsonify({
+                'success': False,
+                'error': 'Failed to run triage. Check console output for details.'
+            }), 500
+    finally:
+        triage_lock.release()
 
 @app.route('/api/emails/counts', methods=['GET'])
 def get_email_counts():
@@ -438,27 +446,26 @@ if __name__ == '__main__':
     print("Starting Flask app on http://localhost:5000")
     print("Press Ctrl+C to stop")
 
-    import threading
-
     def run_initial_triage():
         import time
         time.sleep(1)
         print("Running initial triage in background...")
-        data = run_triage()
-        if data:
-            triage_cache['data'] = data
-            triage_cache['timestamp'] = datetime.now().isoformat()
-            triage_cache['next_sync'] = (datetime.now() + timedelta(minutes=15)).isoformat()
-            triage_cache['model'] = data.get('model')
-            print(f"Triage complete: {data['summary']['total']} emails processed")
-            print(f"Found {len(data['labeled_groups'])} email groups")
-            for g in data['labeled_groups']:
-                print(f"  {g['name']}: {g['count']} emails, {len(g['items'])} items")
-            if not data['labeled_groups']:
-                print("WARNING: No labeled groups found.")
-                print(f"Raw output length: {len(data.get('raw_output', ''))}")
-        else:
-            print("Triage failed - no data returned")
+        with triage_lock:
+            data = run_triage()
+            if data:
+                triage_cache['data'] = data
+                triage_cache['timestamp'] = datetime.now().isoformat()
+                triage_cache['next_sync'] = (datetime.now() + timedelta(minutes=15)).isoformat()
+                triage_cache['model'] = data.get('model')
+                print(f"Triage complete: {data['summary']['total']} emails processed")
+                print(f"Found {len(data['labeled_groups'])} email groups")
+                for g in data['labeled_groups']:
+                    print(f"  {g['name']}: {g['count']} emails, {len(g['items'])} items")
+                if not data['labeled_groups']:
+                    print("WARNING: No labeled groups found.")
+                    print(f"Raw output length: {len(data.get('raw_output', ''))}")
+            else:
+                print("Triage failed - no data returned")
 
     triage_thread = threading.Thread(target=run_initial_triage, daemon=True)
     triage_thread.start()

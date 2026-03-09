@@ -566,14 +566,21 @@ body {
     color: var(--accent);
     font-size: 14px;
     flex-shrink: 0;
-    width: 28px;
-    height: 22px;
+    width: auto;
+    padding: 3px 6px;
     display: flex;
     align-items: center;
     justify-content: center;
+    gap: 3px;
     border-radius: 6px;
     border: 1px solid var(--accent);
     transition: all 0.2s;
+}
+
+.quick-link-icon img {
+    display: block;
+    height: 14px;
+    width: auto;
 }
 
 .quick-link-icon:hover {
@@ -700,6 +707,15 @@ body {
     text-align: center;
     padding: 40px 20px;
     font-size: 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+}
+
+.summary-hint-icon {
+    font-size: 64px;
+    line-height: 1.2;
 }
 
 .summary-item {
@@ -796,6 +812,37 @@ body {
 .summary-item-actions .btn-delete:hover {
     border-color: var(--danger);
     color: var(--danger);
+}
+
+.summary-item-actions .btn-gmail {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 4px 7px;
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    background: none;
+    font-size: 12px;
+    cursor: pointer;
+    white-space: nowrap;
+    color: var(--accent);
+    text-decoration: none;
+}
+
+.summary-item-actions .btn-gmail img {
+    display: block;
+    height: 14px;
+    width: auto;
+}
+
+.summary-item-actions .btn-gmail-arrow {
+    font-size: 16px;
+    line-height: 1;
+}
+
+.summary-item-actions .btn-gmail:hover {
+    background: var(--accent);
+    color: #fff;
 }
 
 .summary-item-actions button:disabled {
