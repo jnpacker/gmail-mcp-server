@@ -23,6 +23,7 @@ let manuallyDeleted = JSON.parse(localStorage.getItem('manuallyDeleted') || '[]'
 let sessionAutoArchived = []; // accumulated auto-archived strings across triage runs
 let sessionAutoDeleted = [];  // accumulated auto-deleted strings across triage runs
 let refreshCycleSleepTimer = null; // track the sleep timer so we can cancel it on page visibility change
+let previousNewEmailCount = 0; // track email count changes for notifications
 
 // DOM Elements
 const refreshBtn = document.getElementById('refreshBtn');
@@ -45,6 +46,11 @@ const modelSelectEl = document.getElementById('modelSelect');
 // ─── Initialization ───────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
+    // Request notification permission on first load
+    if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission();
+    }
+
     refreshBtn.addEventListener('click', handleManualRefresh);
 
     // Refresh interval split-button dropdown
@@ -340,6 +346,13 @@ function updateUI() {
         // Compute "new emails" as sum of labeled group unread counts
         const newTotal = (labeled_groups || []).reduce((sum, g) => sum + (g.count || 0), 0);
         totalEmailsEl.textContent = newTotal;
+
+        // Send notification if new emails arrived
+        if (newTotal > previousNewEmailCount) {
+            const added = newTotal - previousNewEmailCount;
+            sendNewEmailNotification(added, labeled_groups);
+        }
+        previousNewEmailCount = newTotal;
     }
 
     // Accumulate auto-cleaned items for the session (survive triage refreshes)
@@ -943,6 +956,45 @@ function escapeHtml(text) {
         "'": '&#039;'
     };
     return text.replace(/[&<>"']/g, m => map[m]);
+}
+
+/**
+ * Send a browser notification when new emails are detected.
+ * Supported in Firefox and Chrome.
+ */
+function sendNewEmailNotification(count, groups) {
+    if (!('Notification' in window) || Notification.permission !== 'granted') {
+        return;
+    }
+
+    // Build group summary for the notification
+    let title = count === 1 ? '1 new email' : `${count} new emails`;
+
+    // Get the top groups by count for the notification body
+    const topGroups = [...(groups || [])].sort((a, b) => b.count - a.count).slice(0, 3);
+    const details = topGroups.map(g => {
+        const groupName = g.name.replace('Triage/', '');
+        return `${groupName} (${g.count})`;
+    }).join(', ');
+
+    const options = {
+        icon: '/static/gmail-logo.png',
+        body: details || 'Check your inbox',
+        tag: 'gmail-triage-notification',
+        badge: '/static/gmail-logo.png',
+        requireInteraction: false
+    };
+
+    try {
+        const notification = new Notification(title, options);
+        notification.onclick = () => {
+            // Focus the window when notification is clicked
+            window.focus();
+            notification.close();
+        };
+    } catch (e) {
+        console.error('Failed to send notification:', e);
+    }
 }
 
 /**
