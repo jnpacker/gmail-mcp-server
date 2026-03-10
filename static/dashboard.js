@@ -22,6 +22,7 @@ let manuallyArchived = JSON.parse(localStorage.getItem('manuallyArchived') || '[
 let manuallyDeleted = JSON.parse(localStorage.getItem('manuallyDeleted') || '[]'); // {id, subject, sender}
 let sessionAutoArchived = []; // accumulated auto-archived strings across triage runs
 let sessionAutoDeleted = [];  // accumulated auto-deleted strings across triage runs
+let refreshCycleSleepTimer = null; // track the sleep timer so we can cancel it on page visibility change
 
 // DOM Elements
 const refreshBtn = document.getElementById('refreshBtn');
@@ -159,13 +160,23 @@ async function startRefreshCycle() {
         const remainingMs = Math.max(0, nextTriageTime - Date.now());
         const sleepMs = Math.max(0, remainingMs - EARLY_WAKE);
 
-        await sleep(sleepMs);
+        // Sleep but check progress at shorter intervals to detect stale sleep
+        // Wake early if ~30s has passed since last check to recalculate
+        await sleepWithRecalc(sleepMs);
 
-        // Wake up early — trigger new triage
-        await triggerTriage();
+        // Recalculate in case time drifted while in background
+        const nowLastTriageTime = new Date(lastTimestamp).getTime();
+        const nowNextTriageTime = nowLastTriageTime + REFRESH_INTERVAL;
+        const nowRemainingMs = Math.max(0, nowNextTriageTime - Date.now());
 
-        // Poll every 5s until fresh data arrives
-        await pollUntilData();
+        // Only trigger if we're actually close to the scheduled time (within 30s)
+        if (nowRemainingMs <= 30000) {
+            // Wake up early — trigger new triage
+            await triggerTriage();
+
+            // Poll every 5s until fresh data arrives
+            await pollUntilData();
+        }
     }
 }
 
@@ -857,6 +868,33 @@ function buildGmailSearchUrl(groupName) {
 
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Sleep with periodic recalculation.
+ * Wakes up every 30s to check if we're close to the next sync time.
+ * This prevents stale sleeps when the page is backgrounded.
+ */
+function sleepWithRecalc(ms) {
+    return new Promise((resolve) => {
+        const CHECK_INTERVAL = 30 * 1000; // wake every 30 seconds
+        const endTime = Date.now() + ms;
+
+        const checkAndResolve = () => {
+            const remaining = Math.max(0, endTime - Date.now());
+            if (remaining <= 0) {
+                resolve();
+            } else if (remaining > CHECK_INTERVAL) {
+                // Still have time — sleep for another CHECK_INTERVAL and check again
+                setTimeout(checkAndResolve, CHECK_INTERVAL);
+            } else {
+                // Close to the end — sleep the remaining time
+                setTimeout(resolve, remaining);
+            }
+        };
+
+        checkAndResolve();
+    });
 }
 
 /**
