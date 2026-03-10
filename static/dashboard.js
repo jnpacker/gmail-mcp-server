@@ -576,8 +576,12 @@ async function fetchTotalCounts(linkElements, unreadOnly = true) {
         });
 
         // If all cards were removed, show empty inbox
-        if (quickLinksContainer.querySelectorAll('.quick-link').length === 0) {
+        const remainingLinks = quickLinksContainer.querySelectorAll('.quick-link');
+        if (remainingLinks.length === 0) {
             showEmptyInbox();
+        } else if (!currentSummaryGroup) {
+            // Auto-select the first quick link on initial load
+            remainingLinks[0].click();
         }
     } catch (e) {
         console.error('Error fetching email counts:', e);
@@ -656,7 +660,7 @@ async function showSummary(group) {
         } else {
             const empty = document.createElement('p');
             empty.className = 'summary-hint';
-            empty.innerHTML = '<div class="summary-hint-icon">🔍</div>No emails in this group — all clear!';
+            empty.innerHTML = '<div class="summary-hint-icon">🔗</div>No emails in this group — all clear!';
             summaryContainer.appendChild(empty);
             emailBodyContainer.innerHTML = '<div class="summary-hint"><div class="summary-hint-icon">🔍</div>Click an email to view its contents</div>';
         }
@@ -759,28 +763,27 @@ async function emailAction(action, email, itemEl) {
                 itemEl.remove();
                 const remaining = summaryContainer.querySelectorAll('.summary-item');
                 if (remaining.length === 0) {
-                    // Remove the quick link for this group entirely
+                    // Find the card to the left (or right if leftmost) before removing
+                    let nextLink = null;
                     if (groupName) {
-                        const ql = Array.from(quickLinksContainer.querySelectorAll('.quick-link'))
-                            .find(el => el.dataset.label === groupName);
-                        if (ql) ql.remove();
+                        const allLinks = Array.from(quickLinksContainer.querySelectorAll('.quick-link'));
+                        const ql = allLinks.find(el => el.dataset.label === groupName);
+                        if (ql) {
+                            const idx = allLinks.indexOf(ql);
+                            nextLink = idx > 0 ? allLinks[idx - 1] : allLinks[idx + 1] || null;
+                            ql.remove();
+                        }
                     }
                     // If no quick links remain, show empty inbox state
                     if (quickLinksContainer.querySelectorAll('.quick-link').length === 0) {
-                        const scenes = ['🏖️', '🌅', '🏔️', '🌴', '🏕️', '🌈'];
-                        const icon = scenes[Math.floor(Math.random() * scenes.length)];
-                        quickLinksContainer.innerHTML = `
-                            <div class="empty-inbox">
-                                <div class="empty-inbox-icon">${icon}</div>
-                                <div>Inbox clear — nothing to triage. Enjoy the calm!</div>
-                            </div>
-                        `;
+                        currentSummaryGroup = null;
+                        showEmptyInbox();
+                        summaryContainer.innerHTML = '<div class="summary-hint"><div class="summary-hint-icon">🔗</div>Select a group to view emails</div>';
+                        emailBodyContainer.innerHTML = '<div class="summary-hint"><div class="summary-hint-icon">🔍</div>Click an email to view its contents</div>';
+                    } else if (nextLink) {
+                        // Auto-select the adjacent card to the left
+                        nextLink.click();
                     }
-                    const empty = document.createElement('p');
-                    empty.className = 'summary-hint';
-                    empty.textContent = 'No emails in this group — all clear!';
-                    summaryContainer.appendChild(empty);
-                    emailBodyContainer.innerHTML = '<div class="summary-hint"><div class="summary-hint-icon">🔍</div>Click an email to view its contents</div>';
                 }
             }, 600);
         } else {
