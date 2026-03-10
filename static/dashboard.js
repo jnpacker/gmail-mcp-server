@@ -18,8 +18,8 @@ let lastTimestamp = null; // track when data last changed
 let loadingTimerInterval = null;
 let loadingStartTime = null;
 let currentSummaryGroup = null;
-let manuallyArchived = []; // {id, subject, sender}
-let manuallyDeleted = []; // {id, subject, sender}
+let manuallyArchived = JSON.parse(localStorage.getItem('manuallyArchived') || '[]'); // {id, subject, sender}
+let manuallyDeleted = JSON.parse(localStorage.getItem('manuallyDeleted') || '[]'); // {id, subject, sender}
 let sessionAutoArchived = []; // accumulated auto-archived strings across triage runs
 let sessionAutoDeleted = [];  // accumulated auto-deleted strings across triage runs
 
@@ -730,10 +730,12 @@ async function emailAction(action, email, itemEl) {
             if (action === 'delete') {
                 itemEl.classList.add('actioned-delete');
                 manuallyDeleted.push({ id: email.id, subject: email.subject, sender: email.sender });
+                localStorage.setItem('manuallyDeleted', JSON.stringify(manuallyDeleted));
                 renderDeletedItems();
             } else {
                 itemEl.classList.add('actioned-archive');
                 manuallyArchived.push({ id: email.id, subject: email.subject, sender: email.sender });
+                localStorage.setItem('manuallyArchived', JSON.stringify(manuallyArchived));
                 renderArchivedItems();
             }
             buttons.forEach(b => b.remove());
