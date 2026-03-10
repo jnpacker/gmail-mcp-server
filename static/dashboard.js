@@ -23,7 +23,7 @@ let manuallyDeleted = JSON.parse(localStorage.getItem('manuallyDeleted') || '[]'
 let sessionAutoArchived = []; // accumulated auto-archived strings across triage runs
 let sessionAutoDeleted = [];  // accumulated auto-deleted strings across triage runs
 let refreshCycleSleepTimer = null; // track the sleep timer so we can cancel it on page visibility change
-let previousNewEmailCount = 0; // track email count changes for notifications
+let previousLiveUnreadTotal = parseInt(localStorage.getItem('lastKnownUnreadTotal') ?? '-1', 10);
 
 // DOM Elements
 const refreshBtn = document.getElementById('refreshBtn');
@@ -245,6 +245,9 @@ async function handleManualRefresh() {
     refreshBtn.disabled = true;
     refreshBtn.textContent = '⟳ Refreshing...';
 
+    // Reset baseline so fetchTotalCounts fires a notification after this refresh
+    previousLiveUnreadTotal = -1;
+
     await triggerTriage();
     await pollUntilData();
 
@@ -346,13 +349,6 @@ function updateUI() {
         // Compute "new emails" as sum of labeled group unread counts
         const newTotal = (labeled_groups || []).reduce((sum, g) => sum + (g.count || 0), 0);
         totalEmailsEl.textContent = newTotal;
-
-        // Send notification if new emails arrived
-        if (newTotal > previousNewEmailCount) {
-            const added = newTotal - previousNewEmailCount;
-            sendNewEmailNotification(added, labeled_groups);
-        }
-        previousNewEmailCount = newTotal;
     }
 
     // Accumulate auto-cleaned items for the session (survive triage refreshes)
@@ -650,6 +646,20 @@ async function fetchTotalCounts(linkElements, unreadOnly = true) {
                 emailBodyContainer.innerHTML = '<div class="summary-hint"><div class="summary-hint-icon">🔍</div>Click an email to view its contents</div>';
             }
         }
+
+        // Notification check using live counts (more reliable than triage-parsed counts).
+        // previousLiveUnreadTotal is seeded from localStorage so baseline persists across reloads.
+        const liveUnreadTotal = Object.values(counts).reduce((sum, entry) => sum + (entry?.unread ?? 0), 0);
+        if (liveUnreadTotal > previousLiveUnreadTotal) {
+            const added = previousLiveUnreadTotal === -1 ? liveUnreadTotal : liveUnreadTotal - previousLiveUnreadTotal;
+            const groups = linkElements.map(({ group }) => ({
+                name: group.name,
+                count: counts[group.name]?.unread ?? 0,
+            })).filter(g => g.count > 0);
+            sendNewEmailNotification(added, groups);
+        }
+        previousLiveUnreadTotal = liveUnreadTotal;
+        localStorage.setItem('lastKnownUnreadTotal', liveUnreadTotal);
     } catch (e) {
         console.error('Error fetching email counts:', e);
     }
@@ -958,6 +968,26 @@ function escapeHtml(text) {
     return text.replace(/[&<>"']/g, m => map[m]);
 }
 
+let titleFlashInterval = null;
+
+function flashTitle(message) {
+    const original = 'Gmail Dashboard';
+    let toggle = true;
+    if (titleFlashInterval) clearInterval(titleFlashInterval);
+    titleFlashInterval = setInterval(() => {
+        document.title = toggle ? `🔔 ${message}` : original;
+        toggle = !toggle;
+    }, 1000);
+    // Stop flashing when user focuses the tab
+    const stop = () => {
+        clearInterval(titleFlashInterval);
+        titleFlashInterval = null;
+        document.title = original;
+        window.removeEventListener('focus', stop);
+    };
+    window.addEventListener('focus', stop);
+}
+
 /**
  * Send a browser notification when new emails are detected.
  * Supported in Firefox and Chrome.
@@ -984,6 +1014,9 @@ function sendNewEmailNotification(count, groups) {
         badge: '/static/gmail-logo.png',
         requireInteraction: false
     };
+
+    // Flash the page title as a fallback for suppressed OS/browser toasts
+    flashTitle(title);
 
     try {
         const notification = new Notification(title, options);
