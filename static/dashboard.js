@@ -296,9 +296,9 @@ function updateLoadingTimerDisplay(seconds) {
 function updateSyncTimes(result) {
     if (result.timestamp) {
         lastSyncEl.textContent = formatTime(result.timestamp);
-    }
-    if (result.next_sync) {
-        nextSyncEl.textContent = formatTimestamp(result.next_sync);
+        // Compute next sync from actual refresh interval, not backend's hardcoded value
+        const next = new Date(new Date(result.timestamp).getTime() + REFRESH_INTERVAL);
+        nextSyncEl.textContent = formatTimestamp(next.toISOString());
     }
     if (result.model && modelSelectEl) {
         modelSelectEl.value = result.model;
@@ -577,8 +577,12 @@ async function fetchTotalCounts(linkElements, unreadOnly = true) {
         linkElements.forEach(({ link, group }) => {
             const readEl = link.querySelector('.quick-link-read');
             const counts_entry = counts[group.name];
-            const total = counts_entry?.total ?? 0;
-            const unread = counts_entry?.unread ?? 0;
+
+            // null means the API errored (e.g. rate-limited) — keep the card
+            if (counts_entry === null || counts_entry === undefined) return;
+
+            const total = counts_entry.total ?? 0;
+            const unread = counts_entry.unread ?? 0;
             const read = Math.max(0, total - unread);
 
             if (total === 0 || (unreadOnly && unread === 0)) {

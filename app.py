@@ -304,32 +304,44 @@ def get_email_counts():
                 results[label_name] = None
 
         count_data = {name: {'total': 0, 'unread': 0} for name in label_ids}
+        error_labels = set()
 
         def make_callback(label_name, key):
             def callback(request_id, response, exception):
                 if exception:
                     print(f"Batch error for '{label_name}' ({key}): {exception}")
+                    error_labels.add(label_name)
                 elif response:
                     count_data[label_name][key] = len(response.get('messages', []))
             return callback
 
-        batch = gmail_client.service.new_batch_http_request()
-        for label_name, label_id in label_ids.items():
-            batch.add(
-                gmail_client.service.users().messages().list(
-                    userId='me', labelIds=[label_id, 'INBOX'], maxResults=100
-                ),
-                callback=make_callback(label_name, 'total')
-            )
-            batch.add(
-                gmail_client.service.users().messages().list(
-                    userId='me', labelIds=[label_id, 'INBOX', 'UNREAD'], maxResults=100
-                ),
-                callback=make_callback(label_name, 'unread')
-            )
-
-        batch.execute()
+        # Use label name in q= search to avoid labelIds quirks with system labels (e.g. External)
+        # Split into batches of 5 labels (10 requests each) to avoid 429 rate limits
+        label_items = list(label_ids.items())
+        BATCH_SIZE = 5
+        for chunk_start in range(0, len(label_items), BATCH_SIZE):
+            chunk = label_items[chunk_start:chunk_start + BATCH_SIZE]
+            batch = gmail_client.service.new_batch_http_request()
+            for label_name, label_id in chunk:
+                q_label = label_name.replace('/', '-').lower()  # Gmail search uses dashes: triage-security
+                batch.add(
+                    gmail_client.service.users().messages().list(
+                        userId='me', q=f'label:{q_label} -in:trash -in:spam', maxResults=100
+                    ),
+                    callback=make_callback(label_name, 'total')
+                )
+                batch.add(
+                    gmail_client.service.users().messages().list(
+                        userId='me', q=f'label:{q_label} -in:trash -in:spam is:unread', maxResults=100
+                    ),
+                    callback=make_callback(label_name, 'unread')
+                )
+            batch.execute()
         results.update(count_data)
+        # Mark labels that errored as null so the frontend won't hide them
+        for label_name in error_labels:
+            results[label_name] = None
+        print(f"[counts] results: { {k: v for k, v in results.items() if v and (v.get('total', 0) > 0 or k in error_labels)} }")
 
     except Exception as e:
         print(f"Error fetching counts: {e}")
