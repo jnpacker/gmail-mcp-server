@@ -8,6 +8,9 @@ A purpose-built Model Context Protocol (MCP) server for Gmail integration, allow
 - **Email Content**: Access complete email content including headers, body, and metadata
 - **Delete Emails**: Permanently delete emails by ID
 - **Archive Emails**: Archive emails (remove from inbox) by ID
+- **Web Dashboard**: Beautiful, responsive dashboard for intelligent inbox management
+- **Auto-Triage**: Automatic email classification and organization every 15 minutes
+- **Auto-Cleanup**: Intelligent deletion of trivial emails and archiving of calendar invites
 
 ## Installation
 
@@ -33,6 +36,50 @@ Start the server:
 ```bash
 python -m gmail_mcp_server.server
 ```
+
+## Web Dashboard & Inbox Management
+
+The Gmail MCP Server includes a powerful web-based dashboard for intelligent inbox management with automatic triaging and organization.
+
+### Quick Start
+
+Start the dashboard with:
+```bash
+make dashboard
+```
+
+Or manually:
+```bash
+python3 app.py
+```
+
+The dashboard will be available at `http://localhost:5000`
+
+### Dashboard Features
+
+- **Auto-Triage Every 15 Minutes**: Automatically classifies and organizes emails
+- **Intelligent Organization**: Groups emails by priority (Critical → Important → Info)
+- **Auto-Cleanup**: Automatically deletes trivial field changes and archives calendar invites
+- **Real-time Stats**: View total emails, last sync time, and next sync countdown
+- **Quick Navigation**: Click email groups to preview Gmail search results
+- **Responsive Design**: Works on desktop, tablet, and mobile devices
+- **Manual Refresh**: Trigger triage immediately with the refresh button
+
+### Using with Claude Code
+
+When using Claude Code, you can leverage this Gmail MCP server to manage your email directly from your development environment:
+
+1. **Inbox Triaging**: Use the `/triage` command to automatically organize and clean your inbox
+2. **Integration in Workflows**: Claude Code can help analyze email content and suggest actions
+3. **Automated Management**: Set up the dashboard to run in the background and manage emails while you code
+4. **Easy Access**: Check your organized inbox without leaving your IDE
+
+To use with Claude Code:
+1. Ensure the MCP server is configured in your `.mcp.json`
+2. Claude Code will have access to the Gmail tools for email management
+3. Use natural language commands to manage emails (e.g., "delete these spam emails", "archive calendar invites")
+
+See [DASHBOARD.md](DASHBOARD.md) for comprehensive dashboard documentation.
 
 ## MCP Configuration
 
@@ -72,6 +119,34 @@ Place the `.mcp.json` file in your home directory or specify the path when runni
 
 Once configured, you can use the Gmail MCP server with AI assistants by passing it in your client configuration.
 
+## Make Commands
+
+Use the included Makefile for quick access to common tasks:
+
+```bash
+# Display available commands
+make help
+
+# Start the web dashboard
+make dashboard
+
+# Stop the running dashboard
+make kill-dashboard
+
+# Run inbox triage once (email classification and organization)
+make triage
+
+# Watch inbox every 10 minutes (runs triage repeatedly)
+make watch
+```
+
+You can specify which Claude model to use with the `MODEL` variable:
+```bash
+make triage MODEL=haiku        # Fast triage with Haiku (default)
+make triage MODEL=sonnet       # Balanced triage with Sonnet
+make triage MODEL=opus         # Most capable triage with Opus
+make watch MODEL=opus
+```
 
 ## Available Tools
 
