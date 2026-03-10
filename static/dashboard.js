@@ -9,7 +9,7 @@
  *   5. Repeat from step 2
  */
 
-const REFRESH_INTERVAL = 15 * 60 * 1000; // 15 minutes
+let REFRESH_INTERVAL = (parseInt(localStorage.getItem('refreshInterval') || '10', 10)) * 60 * 1000;
 const POLL_INTERVAL = 5000;               // 5 seconds
 const EARLY_WAKE = 60 * 1000;             // wake 1 minute early
 
@@ -37,12 +37,40 @@ const summaryContainer = document.getElementById('summaryContainer');
 const emailBodyContainer = document.getElementById('emailBodyContainer');
 const autoOpenToggle = document.getElementById('autoOpenToggle');
 const unreadOnlyToggle = document.getElementById('unreadOnlyToggle');
+const splitBtnArrow = document.getElementById('splitBtnArrow');
+const refreshDropdown = document.getElementById('refreshDropdown');
 const modelSelectEl = document.getElementById('modelSelect');
 
 // ─── Initialization ───────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
     refreshBtn.addEventListener('click', handleManualRefresh);
+
+    // Refresh interval split-button dropdown
+    const savedInterval = localStorage.getItem('refreshInterval') || '10';
+    REFRESH_INTERVAL = parseInt(savedInterval, 10) * 60 * 1000;
+    refreshDropdown.querySelectorAll('.split-btn-option').forEach(opt => {
+        if (opt.dataset.value === savedInterval) opt.classList.add('selected');
+        else opt.classList.remove('selected');
+    });
+
+    splitBtnArrow.addEventListener('click', (e) => {
+        e.stopPropagation();
+        refreshDropdown.classList.toggle('hidden');
+    });
+
+    refreshDropdown.querySelectorAll('.split-btn-option').forEach(opt => {
+        opt.addEventListener('click', () => {
+            const mins = opt.dataset.value;
+            localStorage.setItem('refreshInterval', mins);
+            REFRESH_INTERVAL = parseInt(mins, 10) * 60 * 1000;
+            refreshDropdown.querySelectorAll('.split-btn-option').forEach(o => o.classList.remove('selected'));
+            opt.classList.add('selected');
+            refreshDropdown.classList.add('hidden');
+        });
+    });
+
+    document.addEventListener('click', () => refreshDropdown.classList.add('hidden'));
 
     // Restore auto-open toggle from localStorage
     const savedAutoOpen = localStorage.getItem('autoOpenGmail');
@@ -457,6 +485,9 @@ function showEmptyInbox() {
             <div>Inbox clear — nothing to triage. Enjoy the calm!</div>
         </div>
     `;
+    currentSummaryGroup = null;
+    summaryContainer.innerHTML = '<div class="summary-hint"><div class="summary-hint-icon">🔗</div>Click a quick link to see email summaries</div>';
+    emailBodyContainer.innerHTML = '<div class="summary-hint"><div class="summary-hint-icon">🔍</div>Click an email to view its contents</div>';
 }
 
 async function updateQuickLinks() {
@@ -582,6 +613,14 @@ async function fetchTotalCounts(linkElements, unreadOnly = true) {
         } else if (!currentSummaryGroup) {
             // Auto-select the first quick link on initial load
             remainingLinks[0].click();
+        } else {
+            // Check if the currently selected group is still visible; if not, clear the summary
+            const stillPresent = Array.from(remainingLinks).some(el => el.dataset.label === currentSummaryGroup.name);
+            if (!stillPresent) {
+                currentSummaryGroup = null;
+                summaryContainer.innerHTML = '<div class="summary-hint"><div class="summary-hint-icon">🔗</div>Click a quick link to see email summaries</div>';
+                emailBodyContainer.innerHTML = '<div class="summary-hint"><div class="summary-hint-icon">🔍</div>Click an email to view its contents</div>';
+            }
         }
     } catch (e) {
         console.error('Error fetching email counts:', e);
@@ -778,10 +817,7 @@ async function emailAction(action, email, itemEl) {
                     }
                     // If no quick links remain, show empty inbox state
                     if (quickLinksContainer.querySelectorAll('.quick-link').length === 0) {
-                        currentSummaryGroup = null;
                         showEmptyInbox();
-                        summaryContainer.innerHTML = '<div class="summary-hint"><div class="summary-hint-icon">🔗</div>Select a group to view emails</div>';
-                        emailBodyContainer.innerHTML = '<div class="summary-hint"><div class="summary-hint-icon">🔍</div>Click an email to view its contents</div>';
                     } else if (nextLink) {
                         // Auto-select the adjacent card to the left
                         nextLink.click();

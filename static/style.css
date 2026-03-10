@@ -210,6 +210,106 @@ body {
     border-color: var(--accent);
 }
 
+.split-btn {
+    position: relative;
+    display: flex;
+    align-items: stretch;
+    border-radius: 8px;
+    overflow: visible;
+}
+
+.split-btn-main {
+    padding: 10px 16px;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 8px 0 0 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+    white-space: nowrap;
+}
+
+.split-btn-main:hover {
+    background: #2563eb;
+}
+
+.split-btn-main:disabled {
+    background: #9ca3af;
+    cursor: not-allowed;
+}
+
+.split-btn-divider {
+    width: 1px;
+    background: rgba(255,255,255,0.3);
+    background-color: var(--accent);
+    filter: brightness(0.8);
+    flex-shrink: 0;
+}
+
+.split-btn-arrow {
+    padding: 10px 10px;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 0 8px 8px 0;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.2s;
+    user-select: none;
+    display: flex;
+    align-items: center;
+}
+
+.split-btn-arrow:hover {
+    background: #2563eb;
+}
+
+.split-btn-dropdown {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+    min-width: 160px;
+    z-index: 100;
+    overflow: hidden;
+}
+
+.split-btn-dropdown.hidden {
+    display: none;
+}
+
+.split-btn-dropdown-label {
+    padding: 8px 14px 6px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-light);
+}
+
+.split-btn-option {
+    padding: 9px 14px;
+    font-size: 14px;
+    cursor: pointer;
+    color: var(--text);
+    transition: background 0.1s;
+}
+
+.split-btn-option:hover {
+    background: var(--light);
+}
+
+.split-btn-option.selected {
+    color: var(--accent);
+    font-weight: 600;
+}
+
+/* Legacy alias kept for JS references */
 .refresh-btn {
     padding: 10px 20px;
     background: var(--accent);

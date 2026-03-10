@@ -37,7 +37,20 @@
                     </span>
                 </div>
             </div>
-            <button id="refreshBtn" class="refresh-btn">⟳ Refresh Now</button>
+            <div class="split-btn">
+                <button id="refreshBtn" class="split-btn-main">⟳ Refresh Now</button>
+                <div class="split-btn-divider"></div>
+                <div class="split-btn-arrow" id="splitBtnArrow" title="Set refresh interval">▾</div>
+                <div class="split-btn-dropdown hidden" id="refreshDropdown">
+                    <div class="split-btn-dropdown-label">Auto-refresh interval</div>
+                    <div class="split-btn-option" data-value="2">2 min</div>
+                    <div class="split-btn-option" data-value="5">5 min</div>
+                    <div class="split-btn-option selected" data-value="10">10 min</div>
+                    <div class="split-btn-option" data-value="15">15 min</div>
+                    <div class="split-btn-option" data-value="30">30 min</div>
+                    <div class="split-btn-option" data-value="60">60 min</div>
+                </div>
+            </div>
         </div>
 
         <!-- Quick Links Section -->
