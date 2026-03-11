@@ -22,22 +22,40 @@ gmail_client = GmailClient()
 TRIAGE_MODEL = 'claude-haiku-4-5'
 triage_model = TRIAGE_MODEL  # mutable runtime selection
 
+# Keywords that indicate an authentication/authorization failure
+_AUTH_KEYWORDS = ['auth', 'token', 'credential', 'unauthorized', 'unauthenticated',
+                  '401', '403', 'refresh', 'login', 'permission', 'access denied']
+
+class AuthError(Exception):
+    pass
+
 triage_cache = {
     'data': None,
     'timestamp': None,
     'next_sync': None,
     'model': None,
     'last_unread_count': None,
+    'error': None,  # {'type': 'auth'|'other', 'message': str} when set
 }
 triage_lock = threading.Lock()
 
+def _is_auth_error(exc: Exception) -> bool:
+    """Return True if the exception looks like an authentication failure."""
+    msg = str(exc).lower()
+    return any(kw in msg for kw in _AUTH_KEYWORDS)
+
 def get_inbox_unread_count():
-    """Return the number of unread emails in INBOX, or None on error."""
+    """Return the number of unread emails in INBOX.
+
+    Raises AuthError if authentication fails; returns None for other errors.
+    """
     try:
         gmail_client._ensure_authenticated()
         result = gmail_client.service.users().labels().get(userId='me', id='INBOX').execute()
         return result.get('messagesUnread', 0)
     except Exception as e:
+        if _is_auth_error(e):
+            raise AuthError(str(e))
         print(f"[unread_count] Error: {e}")
         return None
 
@@ -54,11 +72,15 @@ def run_triage():
 
         if result.returncode != 0:
             print(f"Triage error (code {result.returncode})")
+            combined_output = (result.stderr or '') + (result.stdout or '')
+            combined_lower = combined_output.lower()
+            if any(kw in combined_lower for kw in _AUTH_KEYWORDS):
+                raise AuthError(f"Claude CLI authentication error (code {result.returncode}): {combined_output.strip()}")
             return {
                 'labeled_groups': [],
                 'auto_cleaned': {'archived': [], 'deleted': []},
                 'summary': {'total': 0, 'labeled': 0, 'archived': 0, 'deleted': 0},
-                'raw_output': f"Error running triage (code {result.returncode}): {result.stderr or result.stdout}",
+                'raw_output': f"Error running triage (code {result.returncode}): {combined_output}",
                 'model': triage_model,
             }
 
@@ -79,6 +101,8 @@ def run_triage():
             }
         parsed['model'] = model
         return parsed
+    except AuthError:
+        raise  # propagate auth errors to the caller
     except FileNotFoundError:
         print("Error: 'claude' command not found. Make sure Claude Code CLI is installed.")
         return None
@@ -259,6 +283,7 @@ def get_triage():
         'timestamp': triage_cache['timestamp'],
         'next_sync': next_sync,
         'model': triage_cache.get('model'),
+        'error': triage_cache.get('error'),
     })
 
 @app.route('/api/triage/refresh', methods=['POST'])
@@ -270,15 +295,27 @@ def refresh_triage():
     try:
         print("=== Triage refresh triggered ===")
 
-        unread_count = get_inbox_unread_count()
+        try:
+            unread_count = get_inbox_unread_count()
+        except AuthError as e:
+            msg = f"Gmail authentication failed: {e}"
+            print(f"[triage] Auth error during unread count: {e}")
+            triage_cache['error'] = {'type': 'auth', 'message': msg}
+            return jsonify({'success': False, 'auth_error': True, 'error': msg}), 401
+
         print(f"[triage] inbox unread count: {unread_count}")
         if unread_count is not None:
             if unread_count == 0:
                 print("[triage] Skipping — no unread emails")
                 return jsonify({'success': False, 'skipped': True, 'reason': 'No unread emails found'})
 
-
-        data = run_triage()
+        try:
+            data = run_triage()
+        except AuthError as e:
+            msg = f"Claude CLI authentication failed: {e}"
+            print(f"[triage] Auth error during triage run: {e}")
+            triage_cache['error'] = {'type': 'auth', 'message': msg}
+            return jsonify({'success': False, 'auth_error': True, 'error': msg}), 401
 
         if data:
             current_time = datetime.now()
@@ -287,6 +324,7 @@ def refresh_triage():
             triage_cache['next_sync'] = (current_time + timedelta(minutes=15)).isoformat()
             triage_cache['model'] = data.get('model')
             triage_cache['last_unread_count'] = unread_count
+            triage_cache['error'] = None
             print("Triage succeeded")
             return jsonify({
                 'success': True,
@@ -481,14 +519,28 @@ if __name__ == '__main__':
         time.sleep(1)
         print("Running initial triage in background...")
         with triage_lock:
-            unread_count = get_inbox_unread_count()
+            try:
+                unread_count = get_inbox_unread_count()
+            except AuthError as e:
+                msg = f"Gmail authentication failed: {e}"
+                print(f"[triage] Auth error during initial unread count: {e}")
+                triage_cache['error'] = {'type': 'auth', 'message': msg}
+                triage_cache['timestamp'] = datetime.now().isoformat()
+                return
             print(f"[triage] inbox unread count: {unread_count}")
             if unread_count == 0:
                 print("[triage] Skipping initial triage — no unread emails")
                 triage_cache['timestamp'] = datetime.now().isoformat()
                 triage_cache['data'] = {'labeled_groups': [], 'summary': {}, 'auto_cleaned': {}}
                 return
-            data = run_triage()
+            try:
+                data = run_triage()
+            except AuthError as e:
+                msg = f"Claude CLI authentication failed: {e}"
+                print(f"[triage] Auth error during initial triage run: {e}")
+                triage_cache['error'] = {'type': 'auth', 'message': msg}
+                triage_cache['timestamp'] = datetime.now().isoformat()
+                return
             if data:
                 triage_cache['data'] = data
                 triage_cache['timestamp'] = datetime.now().isoformat()
