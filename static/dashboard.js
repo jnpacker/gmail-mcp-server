@@ -18,10 +18,10 @@ let lastTimestamp = null; // track when data last changed
 let loadingTimerInterval = null;
 let loadingStartTime = null;
 let currentSummaryGroup = null;
-let manuallyArchived = JSON.parse(localStorage.getItem('manuallyArchived') || '[]'); // {id, subject, sender}
-let manuallyDeleted = JSON.parse(localStorage.getItem('manuallyDeleted') || '[]'); // {id, subject, sender}
-let sessionAutoArchived = []; // accumulated auto-archived strings across triage runs
-let sessionAutoDeleted = [];  // accumulated auto-deleted strings across triage runs
+let manuallyArchived = JSON.parse(sessionStorage.getItem('manuallyArchived') || '[]'); // {id, subject, sender}
+let manuallyDeleted = JSON.parse(sessionStorage.getItem('manuallyDeleted') || '[]'); // {id, subject, sender}
+let sessionAutoArchived = JSON.parse(sessionStorage.getItem('sessionAutoArchived') || '[]'); // accumulated auto-archived strings across triage runs
+let sessionAutoDeleted = JSON.parse(sessionStorage.getItem('sessionAutoDeleted') || '[]');  // accumulated auto-deleted strings across triage runs
 let refreshCycleSleepTimer = null; // track the sleep timer so we can cancel it on page visibility change
 let previousLiveUnreadTotal = parseInt(localStorage.getItem('lastKnownUnreadTotal') ?? '-1', 10);
 
@@ -178,10 +178,17 @@ async function startRefreshCycle() {
         // Only trigger if we're actually close to the scheduled time (within 30s)
         if (nowRemainingMs <= 30000) {
             // Wake up early — trigger new triage
-            await triggerTriage();
+            const triageResult = await triggerTriage();
 
-            // Poll every 5s until fresh data arrives
-            await pollUntilData();
+            if (triageResult?.skipped) {
+                console.log('[cycle] Triage skipped:', triageResult.reason);
+                hideSpinner();
+                // Advance lastTimestamp so the cycle sleeps a full interval before retrying
+                lastTimestamp = new Date().toISOString();
+            } else {
+                // Poll every 5s until fresh data arrives
+                await pollUntilData();
+            }
         }
     }
 }
@@ -233,9 +240,11 @@ async function triggerTriage(firstLoad = false) {
     }
 
     try {
-        await fetch('/api/triage/refresh', { method: 'POST' });
+        const res = await fetch('/api/triage/refresh', { method: 'POST' });
+        return await res.json();
     } catch (error) {
         console.error('Error triggering triage:', error);
+        return null;
     }
 }
 
@@ -248,10 +257,16 @@ async function handleManualRefresh() {
     // Reset baseline so fetchTotalCounts fires a notification after this refresh
     previousLiveUnreadTotal = -1;
 
-    await triggerTriage();
-    await pollUntilData();
+    const triageResult = await triggerTriage();
 
-    refreshBtn.textContent = '✓ Refreshed';
+    if (triageResult?.skipped) {
+        hideSpinner();
+        refreshBtn.textContent = '— No new emails';
+    } else {
+        await pollUntilData();
+        refreshBtn.textContent = '✓ Refreshed';
+    }
+
     refreshBtn.disabled = false;
     setTimeout(() => {
         refreshBtn.textContent = '⟳ Refresh Now';
@@ -355,9 +370,11 @@ function updateUI() {
     (triageData.auto_cleaned?.deleted || []).forEach(item => {
         if (!sessionAutoDeleted.includes(item)) sessionAutoDeleted.push(item);
     });
+    sessionStorage.setItem('sessionAutoDeleted', JSON.stringify(sessionAutoDeleted));
     (triageData.auto_cleaned?.archived || []).forEach(item => {
         if (!sessionAutoArchived.includes(item)) sessionAutoArchived.push(item);
     });
+    sessionStorage.setItem('sessionAutoArchived', JSON.stringify(sessionAutoArchived));
 
     renderDeletedItems();
     renderArchivedItems();
@@ -807,12 +824,12 @@ async function emailAction(action, email, itemEl) {
             if (action === 'delete') {
                 itemEl.classList.add('actioned-delete');
                 manuallyDeleted.push({ id: email.id, subject: email.subject, sender: email.sender });
-                localStorage.setItem('manuallyDeleted', JSON.stringify(manuallyDeleted));
+                sessionStorage.setItem('manuallyDeleted', JSON.stringify(manuallyDeleted));
                 renderDeletedItems();
             } else {
                 itemEl.classList.add('actioned-archive');
                 manuallyArchived.push({ id: email.id, subject: email.subject, sender: email.sender });
-                localStorage.setItem('manuallyArchived', JSON.stringify(manuallyArchived));
+                sessionStorage.setItem('manuallyArchived', JSON.stringify(manuallyArchived));
                 renderArchivedItems();
             }
             buttons.forEach(b => b.remove());

@@ -27,8 +27,19 @@ triage_cache = {
     'timestamp': None,
     'next_sync': None,
     'model': None,
+    'last_unread_count': None,
 }
 triage_lock = threading.Lock()
+
+def get_inbox_unread_count():
+    """Return the number of unread emails in INBOX, or None on error."""
+    try:
+        gmail_client._ensure_authenticated()
+        result = gmail_client.service.users().labels().get(userId='me', id='INBOX').execute()
+        return result.get('messagesUnread', 0)
+    except Exception as e:
+        print(f"[unread_count] Error: {e}")
+        return None
 
 def run_triage():
     """Execute the triage command and parse results"""
@@ -258,6 +269,17 @@ def refresh_triage():
 
     try:
         print("=== Triage refresh triggered ===")
+
+        unread_count = get_inbox_unread_count()
+        print(f"[triage] inbox unread count: {unread_count}")
+        if unread_count is not None:
+            if unread_count == 0:
+                print("[triage] Skipping — no unread emails")
+                return jsonify({'success': False, 'skipped': True, 'reason': 'No unread emails found'})
+            if unread_count == triage_cache.get('last_unread_count'):
+                print(f"[triage] Skipping — unread count unchanged ({unread_count})")
+                return jsonify({'success': False, 'skipped': True, 'reason': 'No new emails since last triage'})
+
         data = run_triage()
 
         if data:
@@ -266,6 +288,7 @@ def refresh_triage():
             triage_cache['timestamp'] = current_time.isoformat()
             triage_cache['next_sync'] = (current_time + timedelta(minutes=15)).isoformat()
             triage_cache['model'] = data.get('model')
+            triage_cache['last_unread_count'] = unread_count
             print("Triage succeeded")
             return jsonify({
                 'success': True,
@@ -326,13 +349,13 @@ def get_email_counts():
                 q_label = label_name.replace('/', '-').lower()  # Gmail search uses dashes: triage-security
                 batch.add(
                     gmail_client.service.users().messages().list(
-                        userId='me', q=f'label:{q_label} -in:trash -in:spam', maxResults=100
+                        userId='me', q=f'label:{q_label} in:inbox', maxResults=100
                     ),
                     callback=make_callback(label_name, 'total')
                 )
                 batch.add(
                     gmail_client.service.users().messages().list(
-                        userId='me', q=f'label:{q_label} -in:trash -in:spam is:unread', maxResults=100
+                        userId='me', q=f'label:{q_label} in:inbox is:unread', maxResults=100
                     ),
                     callback=make_callback(label_name, 'unread')
                 )
@@ -460,12 +483,18 @@ if __name__ == '__main__':
         time.sleep(1)
         print("Running initial triage in background...")
         with triage_lock:
+            unread_count = get_inbox_unread_count()
+            print(f"[triage] inbox unread count: {unread_count}")
+            if unread_count == 0:
+                print("[triage] Skipping initial triage — no unread emails")
+                return
             data = run_triage()
             if data:
                 triage_cache['data'] = data
                 triage_cache['timestamp'] = datetime.now().isoformat()
                 triage_cache['next_sync'] = (datetime.now() + timedelta(minutes=15)).isoformat()
                 triage_cache['model'] = data.get('model')
+                triage_cache['last_unread_count'] = unread_count
                 print(f"Triage complete: {data['summary']['total']} emails processed")
                 print(f"Found {len(data['labeled_groups'])} email groups")
                 for g in data['labeled_groups']:
