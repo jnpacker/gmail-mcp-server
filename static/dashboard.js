@@ -396,6 +396,18 @@ function updateUI() {
         totalEmailsEl.textContent = newTotal;
     }
 
+    // Fire notification for newly auto-cleaned items (auto-deleted or auto-archived emails
+    // that never appear in labeled groups — the only signal that new mail was handled)
+    const prevDeletedSet = new Set(sessionAutoDeleted);
+    const prevArchivedSet = new Set(sessionAutoArchived);
+    const newAutoCleanedCount = [
+        ...(triageData.auto_cleaned?.deleted || []).filter(i => !prevDeletedSet.has(i)),
+        ...(triageData.auto_cleaned?.archived || []).filter(i => !prevArchivedSet.has(i)),
+    ].length;
+    if (newAutoCleanedCount > 0) {
+        sendNewEmailNotification(newAutoCleanedCount, []);
+    }
+
     // Accumulate auto-cleaned items for the session (survive triage refreshes)
     (triageData.auto_cleaned?.deleted || []).forEach(item => {
         if (!sessionAutoDeleted.includes(item)) sessionAutoDeleted.push(item);
@@ -578,20 +590,19 @@ async function updateQuickLinks() {
     // Start with groups from triage data
     let groups = [...(triageData.labeled_groups || [])];
 
-    // In "show all" mode, also include any Triage/* labels not in current triage run
-    if (!unreadOnly) {
-        try {
-            const res = await fetch('/api/labels/triage');
-            const data = await res.json();
-            const existingNames = new Set(groups.map(g => g.name));
-            (data.labels || []).forEach(name => {
-                if (!existingNames.has(name)) {
-                    groups.push({ name, count: 0, items: [], priority: 'Info' });
-                }
-            });
-        } catch (e) {
-            console.error('Error fetching triage labels:', e);
-        }
+    // Always include any Triage/* labels not in current triage run so that emails labeled in
+    // previous runs (and still unread) remain visible even when the new triage didn't process them.
+    try {
+        const res = await fetch('/api/labels/triage');
+        const data = await res.json();
+        const existingNames = new Set(groups.map(g => g.name));
+        (data.labels || []).forEach(name => {
+            if (!existingNames.has(name)) {
+                groups.push({ name, count: 0, items: [], priority: 'Info' });
+            }
+        });
+    } catch (e) {
+        console.error('Error fetching triage labels:', e);
     }
 
     if (groups.length === 0) {
@@ -721,6 +732,8 @@ async function fetchTotalCounts(linkElements, unreadOnly = true) {
         }
         previousLiveUnreadTotal = liveUnreadTotal;
         localStorage.setItem('lastKnownUnreadTotal', liveUnreadTotal);
+        // Keep header counter in sync with live unread data (triage-parsed counts can be stale/zero)
+        totalEmailsEl.textContent = liveUnreadTotal;
     } catch (e) {
         console.error('Error fetching email counts:', e);
     }
@@ -1120,7 +1133,7 @@ function sendNewEmailNotification(count, groups) {
             window.focus();
             notification.close();
         };
-        setTimeout(() => notification.close(), 15000);
+        setTimeout(() => notification.close(), 30000);
     } catch (e) {
         console.error('Failed to send notification:', e);
     }
