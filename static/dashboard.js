@@ -889,6 +889,12 @@ async function emailAction(action, email, itemEl) {
                 }
             }
 
+            // Decrement the header unread counter if email was unread
+            if (email.isUnread) {
+                const current = parseInt(totalEmailsEl.textContent, 10) || 0;
+                totalEmailsEl.textContent = Math.max(0, current - 1);
+            }
+
             // Remove the item from the DOM after the animation, then check if group is now empty
             setTimeout(() => {
                 itemEl.remove();
