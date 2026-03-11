@@ -127,6 +127,9 @@ Use the included Makefile for quick access to common tasks:
 # Display available commands
 make help
 
+# Initialize Gmail OAuth authentication (requires credentials.json)
+make auth
+
 # Start the web dashboard
 make dashboard
 
@@ -198,25 +201,35 @@ Archives an email (removes from inbox) by ID.
 On first run, the server requires authentication. Use the provided authentication helper:
 
 ```bash
-gmail-mcp-auth
+make auth
 ```
 
-This will:
-1. Open a browser window for OAuth 2.0 authentication
-2. Request permission to access your Gmail account
-3. Save the authentication token to `token.json` for future use
-
-If you installed in development mode, you can also run:
+Or manually:
 ```bash
 python -m gmail_mcp_server.auth
 ```
+
+This will:
+1. Check that `credentials.json` exists in the project root
+2. Open a browser window for OAuth 2.0 authentication
+3. Request permission to access your Gmail account
+4. Save the authentication token to `token.json` for future use
+
+### Getting Credentials
+
+Before running `make auth`, you need to set up Google OAuth 2.0 credentials:
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project or select an existing one
+3. Enable the Gmail API
+4. Create OAuth 2.0 credentials (Desktop application)
+5. Download the credentials JSON file and save as `credentials.json` in the project root
 
 ### How It Works
 
 - The server checks for an existing authentication token (`token.json`) on startup
 - If the token exists and is valid, the server uses it automatically
 - If the token is expired but has a refresh token, it refreshes automatically
-- If no token exists, the server will request authentication using the `gmail-mcp-auth` command
+- If no token exists, the server will request authentication using the `make auth` command
 
 ### Required Gmail API Scopes
 

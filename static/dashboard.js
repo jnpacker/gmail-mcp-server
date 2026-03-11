@@ -145,6 +145,10 @@ document.addEventListener('DOMContentLoaded', () => {
 async function startRefreshCycle() {
     // Phase 1: try to load cached data immediately
     const cached = await fetchTriage();
+    if (cached?.error?.type === 'auth') {
+        showAuthError(cached.error.message);
+        return; // Don't start the cycle — auth must be fixed first
+    }
     if (cached && cached.data) {
         // Cached data exists — render immediately, no loading message
         lastTimestamp = cached.timestamp;
@@ -208,7 +212,18 @@ function pollUntilData() {
         const timer = setInterval(async () => {
             try {
                 const result = await fetchTriage();
-                if (!result || !result.data) return;
+                if (!result) return;
+
+                // Auth error stored in cache — surface it immediately
+                if (result.error?.type === 'auth') {
+                    clearInterval(timer);
+                    hideSpinner();
+                    showAuthError(result.error.message);
+                    resolve();
+                    return;
+                }
+
+                if (!result.data) return;
 
                 const isNew = result.timestamp && result.timestamp !== lastTimestamp;
 
@@ -264,6 +279,14 @@ async function handleManualRefresh() {
     previousLiveUnreadTotal = -1;
 
     const triageResult = await triggerTriage();
+
+    if (triageResult?.auth_error) {
+        hideSpinner();
+        showAuthError(triageResult.error);
+        refreshBtn.disabled = false;
+        refreshBtn.textContent = '⟳ Refresh Now';
+        return;
+    }
 
     if (triageResult?.skipped) {
         hideSpinner();
@@ -518,6 +541,20 @@ function renderArchivedItems() {
     if (autoArchivedItems.length === 0 && manuallyArchived.length === 0) {
         container.innerHTML = '<p class="archived-empty">No archived emails this session</p>';
     }
+}
+
+function showAuthError(message) {
+    quickLinksContainer.innerHTML = `
+        <div class="auth-error-banner">
+            <div class="auth-error-icon">🔐</div>
+            <div class="auth-error-title">Authentication Error</div>
+            <div class="auth-error-message">${message || 'Gmail or Claude authentication failed. Please re-authenticate and restart the server.'}</div>
+            <div class="auth-error-hint">Check the server console for details, then restart <code>make run</code>.</div>
+        </div>
+    `;
+    currentSummaryGroup = null;
+    summaryContainer.innerHTML = '<div class="summary-hint"><div class="summary-hint-icon">🔐</div>Authentication required</div>';
+    emailBodyContainer.innerHTML = '<div class="summary-hint"><div class="summary-hint-icon">🔑</div>Re-authenticate to continue</div>';
 }
 
 function showEmptyInbox() {
@@ -1083,6 +1120,7 @@ function sendNewEmailNotification(count, groups) {
             window.focus();
             notification.close();
         };
+        setTimeout(() => notification.close(), 15000);
     } catch (e) {
         console.error('Failed to send notification:', e);
     }
