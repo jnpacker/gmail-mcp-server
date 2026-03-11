@@ -276,9 +276,7 @@ def refresh_triage():
             if unread_count == 0:
                 print("[triage] Skipping — no unread emails")
                 return jsonify({'success': False, 'skipped': True, 'reason': 'No unread emails found'})
-            if unread_count == triage_cache.get('last_unread_count'):
-                print(f"[triage] Skipping — unread count unchanged ({unread_count})")
-                return jsonify({'success': False, 'skipped': True, 'reason': 'No new emails since last triage'})
+
 
         data = run_triage()
 
@@ -487,6 +485,8 @@ if __name__ == '__main__':
             print(f"[triage] inbox unread count: {unread_count}")
             if unread_count == 0:
                 print("[triage] Skipping initial triage — no unread emails")
+                triage_cache['timestamp'] = datetime.now().isoformat()
+                triage_cache['data'] = {'labeled_groups': [], 'summary': {}, 'auto_cleaned': {}}
                 return
             data = run_triage()
             if data:

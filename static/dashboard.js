@@ -74,6 +74,11 @@ document.addEventListener('DOMContentLoaded', () => {
             refreshDropdown.querySelectorAll('.split-btn-option').forEach(o => o.classList.remove('selected'));
             opt.classList.add('selected');
             refreshDropdown.classList.add('hidden');
+            // Recompute next sync display from last triage time + new interval
+            const remaining = lastTimestamp
+                ? Math.max(0, new Date(lastTimestamp).getTime() + REFRESH_INTERVAL - Date.now())
+                : REFRESH_INTERVAL;
+            updateNextSync(remaining);
         });
     });
 
@@ -185,6 +190,7 @@ async function startRefreshCycle() {
                 hideSpinner();
                 // Advance lastTimestamp so the cycle sleeps a full interval before retrying
                 lastTimestamp = new Date().toISOString();
+                updateNextSync(REFRESH_INTERVAL);
             } else {
                 // Poll every 5s until fresh data arrives
                 await pollUntilData();
@@ -261,6 +267,7 @@ async function handleManualRefresh() {
 
     if (triageResult?.skipped) {
         hideSpinner();
+        updateNextSync(REFRESH_INTERVAL);
         refreshBtn.textContent = '— No new emails';
     } else {
         await pollUntilData();
@@ -331,8 +338,8 @@ function updateLoadingTimerDisplay(seconds) {
 function updateSyncTimes(result) {
     if (result.timestamp) {
         lastSyncEl.textContent = formatTime(result.timestamp);
-        // Compute next sync from actual refresh interval, not backend's hardcoded value
-        const next = new Date(new Date(result.timestamp).getTime() + REFRESH_INTERVAL);
+        // Compute next sync from now, not from the (possibly stale) cached timestamp
+        const next = new Date(Date.now() + REFRESH_INTERVAL);
         nextSyncEl.textContent = formatTimestamp(next.toISOString());
     }
     if (result.model && modelSelectEl) {
@@ -757,6 +764,22 @@ async function showSummary(group) {
             empty.innerHTML = '<div class="summary-hint-icon">🔗</div>No emails in this group — all clear!';
             summaryContainer.appendChild(empty);
             emailBodyContainer.innerHTML = '<div class="summary-hint"><div class="summary-hint-icon">🔍</div>Click an email to view its contents</div>';
+
+            // Group is empty — remove its quick link
+            const ql = Array.from(quickLinksContainer.querySelectorAll('.quick-link'))
+                .find(el => el.dataset.label === group.name);
+            if (ql) {
+                const allLinks = Array.from(quickLinksContainer.querySelectorAll('.quick-link'));
+                const idx = allLinks.indexOf(ql);
+                const nextLink = idx > 0 ? allLinks[idx - 1] : allLinks[idx + 1] || null;
+                ql.remove();
+                currentSummaryGroup = null;
+                if (quickLinksContainer.querySelectorAll('.quick-link').length === 0) {
+                    showEmptyInbox();
+                } else if (nextLink) {
+                    nextLink.click();
+                }
+            }
         }
     } catch (error) {
         console.error('Error fetching emails for summary:', error);
@@ -844,7 +867,19 @@ async function emailAction(action, email, itemEl) {
                     if (badge) {
                         const current = parseInt(badge.textContent, 10) || 0;
                         const next = Math.max(0, current - 1);
-                        if (next === 0) {
+                        if (next === 0 && unreadOnlyToggle.checked) {
+                            // In unread-only mode, remove the pill when no unreads remain
+                            const allLinks = Array.from(quickLinksContainer.querySelectorAll('.quick-link'));
+                            const idx = allLinks.indexOf(ql);
+                            const nextLink = idx > 0 ? allLinks[idx - 1] : allLinks[idx + 1] || null;
+                            ql.remove();
+                            currentSummaryGroup = null;
+                            if (quickLinksContainer.querySelectorAll('.quick-link').length === 0) {
+                                showEmptyInbox();
+                            } else if (nextLink) {
+                                nextLink.click();
+                            }
+                        } else if (next === 0) {
                             badge.style.display = 'none';
                         } else {
                             badge.textContent = next;
