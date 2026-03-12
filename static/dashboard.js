@@ -16,7 +16,7 @@ const EARLY_WAKE = 60 * 1000;             // wake 1 minute early
 let triageData = null;
 let lastTimestamp = null; // track when data last changed
 let loadingTimerInterval = null;
-let loadingStartTime = null;
+let loadingStartTime = localStorage.getItem('loadingStartTime') ? parseInt(localStorage.getItem('loadingStartTime'), 10) : null;
 let currentSummaryGroup = null;
 let manuallyArchived = JSON.parse(sessionStorage.getItem('manuallyArchived') || '[]'); // {id, subject, sender}
 let manuallyDeleted = JSON.parse(sessionStorage.getItem('manuallyDeleted') || '[]'); // {id, subject, sender}
@@ -223,6 +223,15 @@ function pollUntilData() {
                     return;
                 }
 
+                // Other error types (timeout, etc.) — surface and stop polling
+                if (result.error?.type === 'other') {
+                    clearInterval(timer);
+                    hideSpinner();
+                    showError(result.error.message);
+                    resolve();
+                    return;
+                }
+
                 if (!result.data) return;
 
                 const isNew = result.timestamp && result.timestamp !== lastTimestamp;
@@ -230,6 +239,18 @@ function pollUntilData() {
                 if (isNew || !lastTimestamp) {
                     clearInterval(timer);
                     lastTimestamp = result.timestamp;
+
+                    // If server timestamp is much newer than our loading start time,
+                    // the server was restarted — reset the timer to show correct elapsed time
+                    if (loadingStartTime && result.timestamp) {
+                        const serverTime = new Date(result.timestamp).getTime();
+                        const timeDiff = serverTime - loadingStartTime;
+                        // If more than 10 seconds difference, assume server restarted
+                        if (timeDiff > 10000) {
+                            loadingStartTime = serverTime;
+                        }
+                    }
+
                     triageData = Object.assign(result.data, { model: result.model });
                     updateUI();
                     updateSyncTimes(result);
@@ -319,19 +340,29 @@ async function fetchTriage() {
 
 function showSpinner() {
     headerSpinner.classList.remove('hidden');
-    startLoadingTimer();
+    // Don't restart the timer if it's already running (e.g., page refresh during triage)
+    if (!loadingTimerInterval) {
+        startLoadingTimer();
+    }
 }
 
 function hideSpinner() {
     headerSpinner.classList.add('hidden');
     stopLoadingTimer();
+    // Clear persisted loading start time when triage completes (spinner is done)
+    // Keep loadingStartTime in memory for updateUI to show "Load: X:XX" in Quick Links
+    localStorage.removeItem('loadingStartTime');
 }
 
 // ─── Loading elapsed timer ───────────────────────────────────
 
 function startLoadingTimer() {
     stopLoadingTimer();
-    loadingStartTime = Date.now();
+    // If loading start time wasn't set (fresh triage), set it now
+    // Otherwise keep the existing one (from page refresh during triage)
+    if (!loadingStartTime) {
+        loadingStartTime = Date.now();
+    }
     updateLoadingTimerDisplay(0);
     loadingTimerInterval = setInterval(() => {
         const elapsed = Math.floor((Date.now() - loadingStartTime) / 1000);
@@ -567,6 +598,20 @@ function showAuthError(message) {
     currentSummaryGroup = null;
     summaryContainer.innerHTML = '<div class="summary-hint"><div class="summary-hint-icon">🔐</div>Authentication required</div>';
     emailBodyContainer.innerHTML = '<div class="summary-hint"><div class="summary-hint-icon">🔑</div>Re-authenticate to continue</div>';
+}
+
+function showError(message) {
+    quickLinksContainer.innerHTML = `
+        <div class="auth-error-banner">
+            <div class="auth-error-icon">⚠️</div>
+            <div class="auth-error-title">Triage Error</div>
+            <div class="auth-error-message">${message || 'Triage failed. Check the server console for details.'}</div>
+            <div class="auth-error-hint">Press <strong>Refresh Now</strong> to try again.</div>
+        </div>
+    `;
+    currentSummaryGroup = null;
+    summaryContainer.innerHTML = '<div class="summary-hint"><div class="summary-hint-icon">⚠️</div>Triage failed</div>';
+    emailBodyContainer.innerHTML = '<div class="summary-hint"><div class="summary-hint-icon">🔄</div>Try refreshing</div>';
 }
 
 function showEmptyInbox() {

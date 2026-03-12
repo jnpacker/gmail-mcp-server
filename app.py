@@ -66,7 +66,7 @@ def run_triage():
             ['claude', '-p', '/triage', '--model', triage_model],
             capture_output=True,
             text=True,
-            timeout=180,
+            timeout=300,
             cwd=os.path.dirname(os.path.abspath(__file__))
         )
 
@@ -107,7 +107,7 @@ def run_triage():
         print("Error: 'claude' command not found. Make sure Claude Code CLI is installed.")
         return None
     except subprocess.TimeoutExpired:
-        print("Triage timed out after 180 seconds")
+        print("Triage timed out after 300 seconds")
         return None
     except Exception as e:
         print(f"Error running triage: {e}")
@@ -335,9 +335,11 @@ def refresh_triage():
             })
         else:
             print("Triage failed - no data returned")
+            msg = 'Triage timed out or failed. Check console output for details.'
+            triage_cache['error'] = {'type': 'other', 'message': msg}
             return jsonify({
                 'success': False,
-                'error': 'Failed to run triage. Check console output for details.'
+                'error': {'type': 'other', 'message': msg}
             }), 500
     finally:
         triage_lock.release()
