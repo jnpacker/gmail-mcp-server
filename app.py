@@ -7,6 +7,8 @@ A clean web interface for Gmail inbox triage with auto-refresh every 15 minutes.
 import os
 import re
 import json
+import ssl
+import time
 import subprocess
 import threading
 from datetime import datetime, timedelta
@@ -28,6 +30,21 @@ _AUTH_KEYWORDS = ['auth', 'token', 'credential', 'unauthorized', 'unauthenticate
 
 class AuthError(Exception):
     pass
+
+def _is_ssl_error(exc: Exception) -> bool:
+    return isinstance(exc, ssl.SSLError) or 'ssl' in type(exc).__name__.lower() or '[ssl' in str(exc).lower()
+
+def _with_ssl_retry(fn, retries=3, delay=1.0):
+    """Call fn(), retrying up to `retries` times on transient SSL errors."""
+    for attempt in range(retries):
+        try:
+            return fn()
+        except Exception as e:
+            if _is_ssl_error(e) and attempt < retries - 1:
+                print(f"[ssl_retry] SSL error (attempt {attempt + 1}/{retries}): {e}")
+                time.sleep(delay * (attempt + 1))
+            else:
+                raise
 
 triage_cache = {
     'data': None,
@@ -325,7 +342,10 @@ def refresh_triage():
             triage_cache['model'] = data.get('model')
             triage_cache['last_unread_count'] = unread_count
             triage_cache['error'] = None
-            print("Triage succeeded")
+            print(f"Triage complete: {data['summary']['total']} emails processed")
+            print(f"Found {len(data['labeled_groups'])} email groups")
+            for g in data['labeled_groups']:
+                print(f"  {g['name']}: {g['count']} emails")
             return jsonify({
                 'success': True,
                 'data': data,
@@ -397,7 +417,13 @@ def get_email_counts():
                     ),
                     callback=make_callback(label_name, 'unread')
                 )
-            batch.execute()
+            try:
+                _with_ssl_retry(batch.execute)
+            except Exception as e:
+                print(f"[counts] Batch execute error for chunk {chunk_start}: {e}")
+                # Mark all labels in this chunk as errored so frontend shows them
+                for label_name, _ in chunk:
+                    error_labels.add(label_name)
         results.update(count_data)
         # Mark labels that errored as null so the frontend won't hide them
         for label_name in error_labels:
@@ -420,17 +446,32 @@ def get_emails_by_label():
 
     try:
         gmail_client._ensure_authenticated()
-        # Resolve label name to ID for reliable search
-        label_id = gmail_client._resolve_label_name_to_id(label_name)
-        # Search using label ID and INBOX
-        result = gmail_client.service.users().messages().list(
-            userId='me', labelIds=[label_id, 'INBOX'], maxResults=50
-        ).execute()
+        # Resolve label name to ID — if the label doesn't exist, return empty list
+        try:
+            label_id = gmail_client._resolve_label_name_to_id(label_name)
+        except Exception as e:
+            print(f"Label not found, returning empty list for '{label_name}': {e}")
+            return jsonify({'emails': []})
+
+        # Search using label ID and INBOX, with SSL retry
+        try:
+            result = _with_ssl_retry(lambda: gmail_client.service.users().messages().list(
+                userId='me', labelIds=[label_id, 'INBOX'], maxResults=50
+            ).execute())
+        except Exception as e:
+            print(f"Error fetching emails for label '{label_name}': {e}")
+            if _is_ssl_error(e):
+                return jsonify({'emails': [], 'error': 'transient_ssl'}), 200
+            return jsonify({'error': str(e)}), 500
 
         messages = result.get('messages', [])
         emails = []
         for msg in messages:
-            details = gmail_client._get_email_details(msg['id'])
+            try:
+                details = _with_ssl_retry(lambda mid=msg['id']: gmail_client._get_email_details(mid))
+            except Exception as e:
+                print(f"Error fetching email details for {msg['id']}: {e}")
+                continue
             if details:
                 emails.append({
                     'id': details['id'],
