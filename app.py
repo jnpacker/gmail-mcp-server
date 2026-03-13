@@ -16,6 +16,7 @@ from flask import Flask, render_template, jsonify, request
 from pathlib import Path
 
 from gmail_mcp_server.gmail_client import GmailClient
+from googleapiclient.errors import HttpError
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
 gmail_client = GmailClient()
@@ -34,13 +35,20 @@ class AuthError(Exception):
 def _is_ssl_error(exc: Exception) -> bool:
     return isinstance(exc, ssl.SSLError) or 'ssl' in type(exc).__name__.lower() or '[ssl' in str(exc).lower()
 
+def _is_retryable_gmail_error(exc: Exception) -> bool:
+    if _is_ssl_error(exc):
+        return True
+    if isinstance(exc, HttpError) and getattr(exc, 'resp', None):
+        return exc.resp.status in {429, 500, 502, 503, 504}
+    return False
+
 def _with_ssl_retry(fn, retries=3, delay=1.0):
     """Call fn(), retrying up to `retries` times on transient SSL errors."""
     for attempt in range(retries):
         try:
             return fn()
         except Exception as e:
-            if _is_ssl_error(e) and attempt < retries - 1:
+            if _is_retryable_gmail_error(e) and attempt < retries - 1:
                 print(f"[ssl_retry] SSL error (attempt {attempt + 1}/{retries}): {e}")
                 time.sleep(delay * (attempt + 1))
             else:
@@ -420,6 +428,8 @@ def get_email_counts():
             try:
                 _with_ssl_retry(batch.execute)
             except Exception as e:
+                if not _is_retryable_gmail_error(e):
+                    raise
                 print(f"[counts] Batch execute error for chunk {chunk_start}: {e}")
                 # Mark all labels in this chunk as errored so frontend shows them
                 for label_name, _ in chunk:
@@ -449,7 +459,7 @@ def get_emails_by_label():
         # Resolve label name to ID — if the label doesn't exist, return empty list
         try:
             label_id = gmail_client._resolve_label_name_to_id(label_name)
-        except Exception as e:
+        except ValueError as e:
             print(f"Label not found, returning empty list for '{label_name}': {e}")
             return jsonify({'emails': []})
 
