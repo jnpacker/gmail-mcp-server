@@ -119,6 +119,74 @@ Place the `.mcp.json` file in your home directory or specify the path when runni
 
 Once configured, you can use the Gmail MCP server with AI assistants by passing it in your client configuration.
 
+## Dashboard PIN Security
+
+The dashboard can be protected with a 4-digit PIN. When configured, the dashboard shows a PIN entry screen on every new session (sessions last 4 hours).
+
+### Setting a PIN
+
+```bash
+make set-pin
+# Enter new PIN: ****
+# Confirm PIN: ****
+# PIN saved.
+```
+
+Or use the Python CLI directly:
+```bash
+python3 app.py --set-pin
+```
+
+This writes a PBKDF2-SHA256 hashed PIN to `.pincode` in the project root. The raw PIN is never stored. Both `.pincode` and `.flask_secret` are gitignored.
+
+To remove PIN protection, delete `.pincode`:
+```bash
+rm .pincode
+```
+
+### Running in Kubernetes
+
+When running as a container in Kubernetes, mount the pre-hashed `.pincode` value as a Secret rather than generating it on-disk.
+
+**1. Generate the hash locally:**
+```bash
+python3 -c "
+import secrets, hashlib
+pin = '1234'  # replace with your PIN
+salt = secrets.token_hex(16)
+h = hashlib.pbkdf2_hmac('sha256', pin.encode(), salt.encode(), 260000).hex()
+print(f'{salt}:{h}')
+"
+```
+
+**2. Create a Kubernetes Secret:**
+```bash
+kubectl create secret generic gmail-dashboard-pin \
+  --from-literal=pincode='<salt:hash from above>' \
+  --from-literal=flask-secret-key="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+```
+
+**3. Mount it in your Pod spec:**
+```yaml
+env:
+  - name: FLASK_SECRET_KEY
+    valueFrom:
+      secretKeyRef:
+        name: gmail-dashboard-pin
+        key: flask-secret-key
+volumeMounts:
+  - name: pin-secret
+    mountPath: /app/.pincode
+    subPath: pincode
+    readOnly: true
+volumes:
+  - name: pin-secret
+    secret:
+      secretName: gmail-dashboard-pin
+```
+
+The app reads `.pincode` from the working directory (or override with `PINCODE_PATH` if you prefer a different location). The `FLASK_SECRET_KEY` env var takes precedence over the auto-generated `.flask_secret` file, which is what you want for a stateless container.
+
 ## Make Commands
 
 Use the included Makefile for quick access to common tasks:
@@ -129,6 +197,9 @@ make help
 
 # Initialize Gmail OAuth authentication (requires credentials.json)
 make auth
+
+# Set or change the dashboard PIN
+make set-pin
 
 # Start the web dashboard
 make dashboard

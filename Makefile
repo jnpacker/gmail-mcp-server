@@ -1,4 +1,4 @@
-.PHONY: help auth triage watch dashboard kill-dashboard
+.PHONY: help auth triage watch dashboard kill-dashboard set-pin
 
 .DEFAULT_GOAL := help
 
@@ -31,3 +31,15 @@ dashboard: ## Start the web dashboard (auto-restarts on crash)
 
 kill-dashboard: ## Kill the running dashboard server
 	@pkill -f 'python3 app.py' && echo "Dashboard stopped." || echo "No dashboard running."
+
+set-pin: ## Set or change the dashboard PIN (prompts for PIN twice)
+	@python3 -c "\
+import getpass, secrets, hashlib, sys; \
+from pathlib import Path; \
+p1 = getpass.getpass('Enter new PIN: '); \
+p2 = getpass.getpass('Confirm PIN: '); \
+sys.exit('Error: PINs do not match.') if p1 != p2 else None; \
+salt = secrets.token_hex(16); \
+h = hashlib.pbkdf2_hmac('sha256', p1.encode(), salt.encode(), 260000).hex(); \
+Path('.pincode').write_text(f'{salt}:{h}'); \
+print('PIN saved.')"
