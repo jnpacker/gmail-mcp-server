@@ -22,8 +22,12 @@ triage: ## Run inbox triage (MODEL=haiku|sonnet|opus)
 watch: ## Watch inbox every 10 min (MODEL=haiku|sonnet|opus)
 	./scripts/inbox-manager.sh --watch 10 --model $(MODEL)
 
-dashboard: ## Start the web dashboard
-	python3 app.py
+dashboard: ## Start the web dashboard (auto-restarts on crash)
+	@while true; do \
+		python3 app.py; \
+		echo "[dashboard] Server exited (code $$?), restarting in 2s..."; \
+		sleep 2; \
+	done
 
 kill-dashboard: ## Kill the running dashboard server
 	@pkill -f 'python3 app.py' && echo "Dashboard stopped." || echo "No dashboard running."

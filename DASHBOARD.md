@@ -74,7 +74,7 @@ The dashboard uses the `/triage` Claude command which:
 - Auto-archives calendar invitations
 - Applies meaningful labels to all remaining emails
 
-See `.claude/commands/triage.md` for complete classification rules.
+See `commands/triage.md` for complete classification rules.
 
 ### Data Format
 
@@ -181,7 +181,7 @@ To restrict further, remove `allow-scripts` or `allow-popups`. See `static/dashb
 - Try manual refresh button
 
 ### Triage not running
-- Ensure `.claude/commands/triage.md` exists
+- Ensure `commands/triage.md` exists
 - Run `make triage` directly to test the CLI command
 - Check that Gmail API is enabled and credentials are valid
 
@@ -226,7 +226,7 @@ Gmail Triage Dashboard
 ├── static/
 │   ├── style.css                  # Responsive styling
 │   └── dashboard.js               # Frontend logic & API calls
-└── .claude/commands/triage.md      # Triage classification rules
+└── commands/triage.md      # Triage classification rules
 ```
 
 The architecture is intentionally simple:

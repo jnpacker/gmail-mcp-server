@@ -12,7 +12,7 @@ import time
 import subprocess
 import threading
 from datetime import datetime, timedelta
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, make_response
 from pathlib import Path
 
 from gmail_mcp_server.gmail_client import GmailClient
@@ -20,6 +20,9 @@ from googleapiclient.errors import HttpError
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
 gmail_client = GmailClient()
+# httplib2 (used inside google-api-python-client) is not thread-safe.
+# All gmail_client calls must hold this lock to prevent concurrent SSL access → SIGSEGV.
+gmail_client_lock = threading.Lock()
 
 # Store triage results in memory with timestamp
 TRIAGE_MODEL = 'claude-haiku-4-5'
@@ -75,8 +78,9 @@ def get_inbox_unread_count():
     Raises AuthError if authentication fails; returns None for other errors.
     """
     try:
-        gmail_client._ensure_authenticated()
-        result = gmail_client.service.users().labels().get(userId='me', id='INBOX').execute()
+        with gmail_client_lock:
+            gmail_client._ensure_authenticated()
+            result = gmail_client.service.users().labels().get(userId='me', id='INBOX').execute()
         return result.get('messagesUnread', 0)
     except Exception as e:
         if _is_auth_error(e):
@@ -87,8 +91,9 @@ def get_inbox_unread_count():
 def run_triage():
     """Execute the triage command and parse results"""
     try:
+        cli_cmd = 'gemini' if triage_model.startswith('gemini') else 'claude'
         result = subprocess.run(
-            ['claude', '-p', '/triage', '--model', triage_model],
+            [cli_cmd, '-p', '/triage', '--model', triage_model],
             capture_output=True,
             text=True,
             timeout=300,
@@ -100,7 +105,7 @@ def run_triage():
             combined_output = (result.stderr or '') + (result.stdout or '')
             combined_lower = combined_output.lower()
             if any(kw in combined_lower for kw in _AUTH_KEYWORDS):
-                raise AuthError(f"Claude CLI authentication error (code {result.returncode}): {combined_output.strip()}")
+                raise AuthError(f"{cli_cmd.capitalize()} CLI authentication error (code {result.returncode}): {combined_output.strip()}")
             return {
                 'labeled_groups': [],
                 'auto_cleaned': {'archived': [], 'deleted': []},
@@ -112,7 +117,7 @@ def run_triage():
         triage_text = result.stdout
         model = triage_model
 
-        print(f"[triage] model={model}")
+        print(f"[triage] model={model}, output={len(triage_text)} chars")
 
         parsed = parse_triage_output(triage_text)
         if not parsed:
@@ -129,7 +134,9 @@ def run_triage():
     except AuthError:
         raise  # propagate auth errors to the caller
     except FileNotFoundError:
-        print("Error: 'claude' command not found. Make sure Claude Code CLI is installed.")
+        cli_name = "Gemini CLI" if triage_model.startswith('gemini') else "Claude Code CLI"
+        cmd_name = 'gemini' if triage_model.startswith('gemini') else 'claude'
+        print(f"Error: '{cmd_name}' command not found. Make sure {cli_name} is installed.")
         return None
     except subprocess.TimeoutExpired:
         print("Triage timed out after 300 seconds")
@@ -162,12 +169,19 @@ def parse_triage_output(output):
         # ── Summary line ──
         for line in lines:
             if 'Processed' in line and 'emails' in line:
-                parts = line.split('·')
                 try:
-                    result['summary']['total'] = int(parts[0].split('Processed')[1].split('emails')[0].strip())
-                    result['summary']['labeled'] = int(parts[1].split('labeled')[0].strip())
-                    result['summary']['archived'] = int(parts[2].split('archived')[0].strip())
-                    result['summary']['deleted'] = int(parts[3].split('deleted')[0].strip())
+                    m = re.search(r'Processed\s+(\d+)\s+emails', line)
+                    if m:
+                        result['summary']['total'] = int(m.group(1))
+                    m = re.search(r'(\d+)\s+labeled', line)
+                    if m:
+                        result['summary']['labeled'] = int(m.group(1))
+                    m = re.search(r'(\d+)\s+archived', line)
+                    if m:
+                        result['summary']['archived'] = int(m.group(1))
+                    m = re.search(r'(\d+)\s+deleted', line)
+                    if m:
+                        result['summary']['deleted'] = int(m.group(1))
                 except Exception as e:
                     print(f"Error parsing summary line: {e}")
 
@@ -190,7 +204,7 @@ def parse_triage_output(output):
                         priority = 'Important'
 
                     count = 0
-                    count_match = re.search(r'(\d+)\s*emails?', line)
+                    count_match = re.search(r'(\d+)\]?\s*emails?', line)
                     if count_match:
                         count = int(count_match.group(1))
 
@@ -293,7 +307,9 @@ def parse_triage_output(output):
 def index():
     """Serve the dashboard HTML"""
     import time
-    return render_template('dashboard.html', cache_bust=int(time.time()))
+    response = make_response(render_template('dashboard.html', cache_bust=int(time.time())))
+    response.headers['Cache-Control'] = 'no-store'
+    return response
 
 @app.route('/api/triage', methods=['GET'])
 def get_triage():
@@ -337,7 +353,7 @@ def refresh_triage():
         try:
             data = run_triage()
         except AuthError as e:
-            msg = f"Claude CLI authentication failed: {e}"
+            msg = f"CLI authentication failed: {e}"
             print(f"[triage] Auth error during triage run: {e}")
             triage_cache['error'] = {'type': 'auth', 'message': msg}
             return jsonify({'success': False, 'auth_error': True, 'error': msg}), 401
@@ -383,16 +399,7 @@ def get_email_counts():
     try:
         gmail_client._ensure_authenticated()
 
-        # Resolve label names to IDs, skipping any that don't exist
-        label_ids = {}
-        for label_name in labels:
-            try:
-                label_ids[label_name] = gmail_client._resolve_label_name_to_id(label_name)
-            except Exception as e:
-                print(f"Label not found, skipping '{label_name}': {e}")
-                results[label_name] = None
-
-        count_data = {name: {'total': 0, 'unread': 0} for name in label_ids}
+        count_data = {name: {'total': 0, 'unread': 0} for name in labels}
         error_labels = set()
 
         def make_callback(label_name, key):
@@ -406,12 +413,11 @@ def get_email_counts():
 
         # Use label name in q= search to avoid labelIds quirks with system labels (e.g. External)
         # Split into batches of 5 labels (10 requests each) to avoid 429 rate limits
-        label_items = list(label_ids.items())
         BATCH_SIZE = 5
-        for chunk_start in range(0, len(label_items), BATCH_SIZE):
-            chunk = label_items[chunk_start:chunk_start + BATCH_SIZE]
+        for chunk_start in range(0, len(labels), BATCH_SIZE):
+            chunk = labels[chunk_start:chunk_start + BATCH_SIZE]
             batch = gmail_client.service.new_batch_http_request()
-            for label_name, label_id in chunk:
+            for label_name in chunk:
                 q_label = label_name.replace('/', '-').lower()  # Gmail search uses dashes: triage-security
                 batch.add(
                     gmail_client.service.users().messages().list(
@@ -432,7 +438,7 @@ def get_email_counts():
                     raise
                 print(f"[counts] Batch execute error for chunk {chunk_start}: {e}")
                 # Mark all labels in this chunk as errored so frontend shows them
-                for label_name, _ in chunk:
+                for label_name in chunk:
                     error_labels.add(label_name)
         results.update(count_data)
         # Mark labels that errored as null so the frontend won't hide them
@@ -515,6 +521,8 @@ ALLOWED_MODELS = {
     'claude-haiku-4-5',
     'claude-sonnet-4-6',
     'claude-opus-4-6',
+    'gemini-2.5-flash',
+    'gemini-2.5-pro',
 }
 
 @app.route('/api/model', methods=['GET'])
@@ -531,6 +539,25 @@ def set_model():
     triage_model = model
     print(f"[model] Switched to {triage_model}")
     return jsonify({'model': triage_model})
+
+
+@app.route('/api/emails/readstate', methods=['POST'])
+def set_email_readstate():
+    """Mark an email as read or unread."""
+    data = request.get_json()
+    message_id = data.get('message_id') if data else None
+    unread = data.get('unread') if data else None
+    if not message_id or unread is None:
+        return jsonify({'error': 'message_id and unread required'}), 400
+
+    try:
+        if unread:
+            result = gmail_client.mark_as_unread([message_id])[0]
+        else:
+            result = gmail_client.mark_as_read([message_id])[0]
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/emails/archive', methods=['POST'])
@@ -589,7 +616,7 @@ if __name__ == '__main__':
             try:
                 data = run_triage()
             except AuthError as e:
-                msg = f"Claude CLI authentication failed: {e}"
+                msg = f"CLI authentication failed: {e}"
                 print(f"[triage] Auth error during initial triage run: {e}")
                 triage_cache['error'] = {'type': 'auth', 'message': msg}
                 triage_cache['timestamp'] = datetime.now().isoformat()
@@ -613,4 +640,4 @@ if __name__ == '__main__':
     triage_thread = threading.Thread(target=run_initial_triage, daemon=True)
     triage_thread.start()
 
-    app.run(debug=False, port=5000)
+    app.run(debug=False, port=5000, threaded=True)
