@@ -9,7 +9,7 @@
  *   5. Repeat from step 2
  */
 
-let REFRESH_INTERVAL = (parseInt(localStorage.getItem('refreshInterval') || '10', 10)) * 60 * 1000;
+let REFRESH_INTERVAL = (parseInt(localStorage.getItem('refreshInterval') || '5', 10)) * 60 * 1000;
 const POLL_INTERVAL = 5000;               // 5 seconds
 const EARLY_WAKE = 60 * 1000;             // wake 1 minute early
 
@@ -23,12 +23,13 @@ let manuallyDeleted = JSON.parse(sessionStorage.getItem('manuallyDeleted') || '[
 let sessionAutoArchived = JSON.parse(sessionStorage.getItem('sessionAutoArchived') || '[]'); // accumulated auto-archived strings across triage runs
 let sessionAutoDeleted = JSON.parse(sessionStorage.getItem('sessionAutoDeleted') || '[]');  // accumulated auto-deleted strings across triage runs
 let refreshCycleSleepTimer = null; // track the sleep timer so we can cancel it on page visibility change
+let quickLinksUpdateInFlight = false; // prevent concurrent updateQuickLinks calls
 let previousLiveUnreadTotal = parseInt(localStorage.getItem('lastKnownUnreadTotal') ?? '-1', 10);
+let currentUnreadCount = 0;
 
 // DOM Elements
 const refreshBtn = document.getElementById('refreshBtn');
 const lastSyncEl = document.getElementById('lastSync');
-const totalEmailsEl = document.getElementById('totalEmails');
 const nextSyncEl = document.getElementById('nextSync');
 const deletedItemsEl = document.getElementById('deletedItems');
 const quickLinksContainer = document.getElementById('quickLinksContainer');
@@ -43,9 +44,89 @@ const splitBtnArrow = document.getElementById('splitBtnArrow');
 const refreshDropdown = document.getElementById('refreshDropdown');
 const modelSelectEl = document.getElementById('modelSelect');
 
+// ─── Favicon Guard ────────────────────────────────────────────
+// Chrome PWA windows can steal the favicon from iframes (e.g. Gmail preview).
+// Watch <head> and re-assert our static favicon if it gets replaced.
+
+const STATIC_FAVICON = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📧</text></svg>";
+
+function assertFavicon() {
+    const link = document.getElementById('staticFavicon');
+    // Use getAttribute (raw value) not .href (normalized URL) to avoid infinite loop
+    if (link && link.getAttribute('href') !== STATIC_FAVICON) {
+        link.setAttribute('href', STATIC_FAVICON);
+    }
+}
+
+// Watch only the favicon element's href — not the whole <head> — to avoid
+// triggering on document.title changes (which fire childList mutations in <head>
+// and can cause an infinite assertFavicon loop when flashTitle is running).
+const _faviconEl = document.getElementById('staticFavicon');
+if (_faviconEl) {
+    new MutationObserver(assertFavicon).observe(_faviconEl, {
+        attributes: true,
+        attributeFilter: ['href'],
+    });
+}
+
+// ─── Favicon Badge ────────────────────────────────────────────
+
+function updateFaviconBadge(count) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+
+    // Draw base emoji
+    ctx.font = '52px serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('📧', 32, 34);
+
+    if (count > 0) {
+        const label = count > 99 ? '99+' : String(count);
+        const isLong = label.length > 2;
+        const radius = 14; // ~10% smaller than original 1/4-quadrant size
+        const bx = 48, by = 16;
+
+        // White border then blue circle
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(bx, by, radius + 2, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#0a84ff';
+        ctx.beginPath();
+        ctx.arc(bx, by, radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        // White count text
+        ctx.fillStyle = '#ffffff';
+        ctx.font = `bold ${isLong ? 14 : 20}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, bx, by);
+    }
+
+    const headerIcon = document.getElementById('unreadBadgeIcon');
+    if (headerIcon) headerIcon.src = canvas.toDataURL('image/png');
+}
+
+function setUnreadCount(n) {
+    currentUnreadCount = n;
+    updateFaviconBadge(n);
+    if ('setAppBadge' in navigator) {
+        if (n > 0) navigator.setAppBadge(n);
+        else navigator.clearAppBadge();
+    }
+}
+
 // ─── Initialization ───────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
+    // Render the header icon immediately so it doesn't show as broken during first sync
+    updateFaviconBadge(0);
+
     // Request notification permission on first load
     if ('Notification' in window && Notification.permission === 'default') {
         Notification.requestPermission();
@@ -54,7 +135,7 @@ document.addEventListener('DOMContentLoaded', () => {
     refreshBtn.addEventListener('click', handleManualRefresh);
 
     // Refresh interval split-button dropdown
-    const savedInterval = localStorage.getItem('refreshInterval') || '10';
+    const savedInterval = localStorage.getItem('refreshInterval') || '5';
     REFRESH_INTERVAL = parseInt(savedInterval, 10) * 60 * 1000;
     refreshDropdown.querySelectorAll('.split-btn-option').forEach(opt => {
         if (opt.dataset.value === savedInterval) opt.classList.add('selected');
@@ -100,7 +181,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     unreadOnlyToggle.addEventListener('change', () => {
         localStorage.setItem('unreadOnly', unreadOnlyToggle.checked);
-        if (triageData) updateQuickLinks();
+        updateQuickLinks();
     });
 
     // Restore saved model from localStorage, sync to backend
@@ -133,6 +214,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // Load quick links immediately from live Gmail labels, in parallel with triage
+    updateQuickLinks();
     startRefreshCycle();
 });
 
@@ -156,13 +239,6 @@ async function startRefreshCycle() {
         updateUI();
         updateSyncTimes(cached);
     } else {
-        // First load — show loading message and header spinner
-        quickLinksContainer.innerHTML = `
-            <div class="loading-with-spinner">
-                <span class="spinner-email">⏳</span>
-                <span>Loading triage data...</span>
-            </div>
-        `;
         showSpinner();
         await pollUntilData();
     }
@@ -272,15 +348,6 @@ function pollUntilData() {
 async function triggerTriage(firstLoad = false) {
     showSpinner();
 
-    if (firstLoad && !triageData) {
-        quickLinksContainer.innerHTML = `
-            <div class="loading-with-spinner">
-                <span class="spinner-email">⏳</span>
-                <span>Loading triage data...</span>
-            </div>
-        `;
-    }
-
     try {
         const res = await fetch('/api/triage/refresh', { method: 'POST' });
         return await res.json();
@@ -349,8 +416,7 @@ function showSpinner() {
 function hideSpinner() {
     headerSpinner.classList.add('hidden');
     stopLoadingTimer();
-    // Clear persisted loading start time when triage completes (spinner is done)
-    // Keep loadingStartTime in memory for updateUI to show "Load: X:XX" in Quick Links
+    loadingStartTime = null;
     localStorage.removeItem('loadingStartTime');
 }
 
@@ -392,8 +458,8 @@ function updateLoadingTimerDisplay(seconds) {
 function updateSyncTimes(result) {
     if (result.timestamp) {
         lastSyncEl.textContent = formatTime(result.timestamp);
-        // Compute next sync from now, not from the (possibly stale) cached timestamp
-        const next = new Date(Date.now() + REFRESH_INTERVAL);
+        // Compute next sync from the actual last triage time + interval (not from now)
+        const next = new Date(new Date(result.timestamp).getTime() + REFRESH_INTERVAL);
         nextSyncEl.textContent = formatTimestamp(next.toISOString());
     }
     if (result.model && modelSelectEl) {
@@ -424,7 +490,7 @@ function updateUI() {
     if (summary) {
         // Compute "new emails" as sum of labeled group unread counts
         const newTotal = (labeled_groups || []).reduce((sum, g) => sum + (g.count || 0), 0);
-        totalEmailsEl.textContent = newTotal;
+        setUnreadCount(newTotal);
     }
 
     // Fire notification for newly auto-cleaned items (auto-deleted or auto-archived emails
@@ -591,7 +657,7 @@ function showAuthError(message) {
         <div class="auth-error-banner">
             <div class="auth-error-icon">🔐</div>
             <div class="auth-error-title">Authentication Error</div>
-            <div class="auth-error-message">${message || 'Gmail or Claude authentication failed. Please re-authenticate and restart the server.'}</div>
+            <div class="auth-error-message">${message || 'Gmail or AI assistant CLI authentication failed. Please re-authenticate and restart the server.'}</div>
             <div class="auth-error-hint">Check the server console for details, then restart <code>make run</code>.</div>
         </div>
     `;
@@ -629,20 +695,29 @@ function showEmptyInbox() {
 }
 
 async function updateQuickLinks() {
+    // Drop concurrent calls — the next triage cycle will refresh anyway
+    if (quickLinksUpdateInFlight) return;
+    quickLinksUpdateInFlight = true;
+
+    try {
+        await _updateQuickLinksInner();
+    } finally {
+        quickLinksUpdateInFlight = false;
+    }
+}
+
+async function _updateQuickLinksInner() {
     const unreadOnly = unreadOnlyToggle.checked;
-    quickLinksContainer.innerHTML = '';
 
-    // Start with groups from triage data
-    let groups = [...(triageData.labeled_groups || [])];
+    // Build candidate groups: current triage data groups + all Gmail Triage/* labels
+    let groups = [...(triageData?.labeled_groups || [])];
+    const triageNames = new Set(groups.map(g => g.name));
 
-    // Always include any Triage/* labels not in current triage run so that emails labeled in
-    // previous runs (and still unread) remain visible even when the new triage didn't process them.
     try {
         const res = await fetch('/api/labels/triage');
         const data = await res.json();
-        const existingNames = new Set(groups.map(g => g.name));
         (data.labels || []).forEach(name => {
-            if (!existingNames.has(name)) {
+            if (!triageNames.has(name)) {
                 groups.push({ name, count: 0, items: [], priority: 'Info' });
             }
         });
@@ -655,11 +730,50 @@ async function updateQuickLinks() {
         return;
     }
 
-    groups.sort((a, b) => b.count - a.count);
-    const linkElements = [];
+    // Fetch live counts before rendering so we only create cards for non-empty labels
+    let counts = {};
+    try {
+        const params = groups.map(g => `label=${encodeURIComponent(g.name)}`).join('&');
+        const res = await fetch(`/api/emails/counts?${params}`);
+        const data = await res.json();
+        counts = data.counts || {};
+    } catch (e) {
+        console.error('Error fetching email counts:', e);
+    }
 
-    groups.forEach((group) => {
-        const hasUnread = group.count > 0;
+    // Filter to only groups with live emails (keep on API error so real emails aren't hidden)
+    const visibleGroups = groups.filter(group => {
+        const entry = counts[group.name];
+        if (entry === null) return true; // API error — keep it
+        const total = entry?.total ?? group.count;
+        const unread = entry?.unread ?? 0;
+        if (total === 0) return false;
+        if (unreadOnly && unread === 0) return false;
+        return true;
+    });
+
+    // All fetches done — now atomically replace the container contents
+    quickLinksContainer.innerHTML = '';
+
+    if (visibleGroups.length === 0) {
+        showEmptyInbox();
+        return;
+    }
+
+    // Sort by live unread count descending
+    visibleGroups.sort((a, b) => {
+        const aUnread = counts[a.name]?.unread ?? a.count;
+        const bUnread = counts[b.name]?.unread ?? b.count;
+        return bUnread - aUnread;
+    });
+
+    visibleGroups.forEach(group => {
+        const entry = counts[group.name];
+        const liveUnread = entry?.unread ?? group.count;
+        const liveTotal = entry?.total ?? group.count;
+        const liveRead = Math.max(0, liveTotal - liveUnread);
+        const hasUnread = liveUnread > 0;
+
         const link = document.createElement('div');
         link.className = hasUnread ? 'quick-link' : 'quick-link quick-link-read-only';
         link.dataset.label = group.name;
@@ -682,106 +796,57 @@ async function updateQuickLinks() {
         arrow.addEventListener('click', (e) => {
             e.stopPropagation();
             openGmailUrl(gmailUrl);
-            showSummary(group);
         });
 
         const info = document.createElement('div');
         info.className = 'quick-link-info';
         info.innerHTML = hasUnread
             ? `<div class="quick-link-title">${escapeHtml(groupName)}</div>
-               <span class="quick-link-badge badge-unread" title="${group.count} unread">${group.count}</span>
-               <span class="quick-link-read"></span>`
+               <span class="quick-link-badge badge-unread" title="${liveUnread} unread">${liveUnread}</span>
+               <span class="quick-link-read">${liveRead > 0 ? `+${liveRead} read` : ''}</span>`
             : `<div class="quick-link-title">${escapeHtml(groupName)}</div>
                <span class="quick-link-badge badge-read" title="All read">✓</span>
-               <span class="quick-link-read"></span>`;
+               <span class="quick-link-read">${liveRead > 0 ? `+${liveRead} read` : ''}</span>`;
 
         link.appendChild(info);
         link.appendChild(arrow);
         quickLinksContainer.appendChild(link);
-        linkElements.push({ link, group });
     });
 
-    fetchTotalCounts(linkElements, unreadOnly);
-}
-
-async function fetchTotalCounts(linkElements, unreadOnly = true) {
-    try {
-        const params = linkElements.map(({ group }) => `label=${encodeURIComponent(group.name)}`).join('&');
-        const response = await fetch(`/api/emails/counts?${params}`);
-        const data = await response.json();
-        const counts = data.counts || {};
-
-        linkElements.forEach(({ link, group }) => {
-            const readEl = link.querySelector('.quick-link-read');
-            const counts_entry = counts[group.name];
-
-            // null means the API errored (e.g. rate-limited) — keep the card
-            if (counts_entry === null || counts_entry === undefined) return;
-
-            const total = counts_entry.total ?? 0;
-            const unread = counts_entry.unread ?? 0;
-            const read = Math.max(0, total - unread);
-
-            if (total === 0 || (unreadOnly && unread === 0)) {
-                link.remove();
-                return;
-            }
-
-            // Update badge with live unread count
-            const badge = link.querySelector('.quick-link-badge');
-            if (badge) {
-                if (unread > 0) {
-                    badge.textContent = unread;
-                    badge.title = `${unread} unread`;
-                    badge.className = 'quick-link-badge badge-unread';
-                    link.classList.remove('quick-link-read-only');
-                } else {
-                    badge.textContent = '✓';
-                    badge.title = 'All read';
-                    badge.className = 'quick-link-badge badge-read';
-                }
-            }
-
-            if (read > 0) {
-                if (readEl) readEl.textContent = `+${read} read`;
-            }
-        });
-
-        // If all cards were removed, show empty inbox
-        const remainingLinks = quickLinksContainer.querySelectorAll('.quick-link');
-        if (remainingLinks.length === 0) {
-            showEmptyInbox();
-        } else if (!currentSummaryGroup) {
-            // Auto-select the first quick link on initial load
-            remainingLinks[0].click();
+    const allLinks = quickLinksContainer.querySelectorAll('.quick-link');
+    if (allLinks.length === 0) {
+        showEmptyInbox();
+    } else if (!currentSummaryGroup) {
+        // Auto-select the first quick link on initial load
+        allLinks[0].click();
+    } else {
+        // Preserve selection: mark the previously selected group active
+        const activeEl = Array.from(allLinks).find(el => el.dataset.label === currentSummaryGroup.name);
+        if (activeEl) {
+            activeEl.classList.add('active');
+            // Update group reference to pick up fresh triage summaries if available
+            const updatedGroup = visibleGroups.find(g => g.name === currentSummaryGroup.name);
+            if (updatedGroup) currentSummaryGroup = updatedGroup;
         } else {
-            // Check if the currently selected group is still visible; if not, clear the summary
-            const stillPresent = Array.from(remainingLinks).some(el => el.dataset.label === currentSummaryGroup.name);
-            if (!stillPresent) {
-                currentSummaryGroup = null;
-                summaryContainer.innerHTML = '<div class="summary-hint"><div class="summary-hint-icon">🔗</div>Click a quick link to see email summaries</div>';
-                emailBodyContainer.innerHTML = '<div class="summary-hint"><div class="summary-hint-icon">🔍</div>Click an email to view its contents</div>';
-            }
+            currentSummaryGroup = null;
+            summaryContainer.innerHTML = '<div class="summary-hint"><div class="summary-hint-icon">🔗</div>Click a quick link to see email summaries</div>';
+            emailBodyContainer.innerHTML = '<div class="summary-hint"><div class="summary-hint-icon">🔍</div>Click an email to view its contents</div>';
         }
-
-        // Notification check using live counts (more reliable than triage-parsed counts).
-        // previousLiveUnreadTotal is seeded from localStorage so baseline persists across reloads.
-        const liveUnreadTotal = Object.values(counts).reduce((sum, entry) => sum + (entry?.unread ?? 0), 0);
-        if (liveUnreadTotal > previousLiveUnreadTotal) {
-            const added = previousLiveUnreadTotal === -1 ? liveUnreadTotal : liveUnreadTotal - previousLiveUnreadTotal;
-            const groups = linkElements.map(({ group }) => ({
-                name: group.name,
-                count: counts[group.name]?.unread ?? 0,
-            })).filter(g => g.count > 0);
-            sendNewEmailNotification(added, groups);
-        }
-        previousLiveUnreadTotal = liveUnreadTotal;
-        localStorage.setItem('lastKnownUnreadTotal', liveUnreadTotal);
-        // Keep header counter in sync with live unread data (triage-parsed counts can be stale/zero)
-        totalEmailsEl.textContent = liveUnreadTotal;
-    } catch (e) {
-        console.error('Error fetching email counts:', e);
     }
+
+    // Notification check using live counts
+    const liveUnreadTotal = Object.values(counts).reduce((sum, entry) => sum + (entry?.unread ?? 0), 0);
+    if (liveUnreadTotal > previousLiveUnreadTotal) {
+        const added = previousLiveUnreadTotal === -1 ? liveUnreadTotal : liveUnreadTotal - previousLiveUnreadTotal;
+        const notifGroups = visibleGroups.map(g => ({
+            name: g.name,
+            count: counts[g.name]?.unread ?? 0,
+        })).filter(g => g.count > 0);
+        sendNewEmailNotification(added, notifGroups);
+    }
+    previousLiveUnreadTotal = liveUnreadTotal;
+    localStorage.setItem('lastKnownUnreadTotal', liveUnreadTotal);
+    setUnreadCount(liveUnreadTotal);
 }
 
 // ─── Summary pane ─────────────────────────────────────────────
@@ -823,6 +888,7 @@ async function showSummary(group) {
                 div.id = `email-${email.id}`;
                 div.innerHTML = `
                     <div class="summary-item-row">
+                        <button class="unread-dot ${email.isUnread ? 'unread-dot-active' : ''}" title="${email.isUnread ? 'Mark as read' : 'Mark as unread'}" data-id="${email.id}"></button>
                         <div class="summary-item-text">
                             <div class="summary-item-subject">${escapeHtml(email.subject)}</div>
                             <div class="summary-item-meta">${escapeHtml(email.sender)}</div>
@@ -838,12 +904,16 @@ async function showSummary(group) {
 
                 // Click email card to show body in right pane
                 div.addEventListener('click', (e) => {
-                    if (e.target.closest('.summary-item-actions')) return;
+                    if (e.target.closest('.summary-item-actions') || e.target.closest('.unread-dot')) return;
                     summaryContainer.querySelectorAll('.summary-item').forEach(el => el.classList.remove('selected'));
                     div.classList.add('selected');
                     showEmailBody(email);
                 });
 
+                div.querySelector('.unread-dot').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    toggleReadState(email, div);
+                });
                 div.querySelector('.btn-archive').addEventListener('click', (e) => {
                     e.stopPropagation();
                     emailAction('archive', email, div);
@@ -924,6 +994,61 @@ function showEmailBody(email) {
     }
 }
 
+async function toggleReadState(email, itemEl) {
+    const btn = itemEl.querySelector('.unread-dot');
+    if (btn) btn.disabled = true;
+
+    const newUnread = !email.isUnread;
+    try {
+        const response = await fetch('/api/emails/readstate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message_id: email.id, unread: newUnread })
+        });
+        const result = await response.json();
+
+        if (result.success) {
+            email.isUnread = newUnread;
+
+            if (btn) {
+                btn.classList.toggle('unread-dot-active', newUnread);
+                btn.title = newUnread ? 'Mark as read' : 'Mark as unread';
+                btn.disabled = false;
+            }
+
+            itemEl.classList.toggle('summary-item-unread', newUnread);
+            itemEl.classList.toggle('summary-item-read', !newUnread);
+
+            // Update quick link unread badge
+            const groupName = currentSummaryGroup?.name;
+            if (groupName) {
+                const ql = Array.from(quickLinksContainer.querySelectorAll('.quick-link'))
+                    .find(el => el.dataset.label === groupName);
+                if (ql) {
+                    const badge = ql.querySelector('.quick-link-badge');
+                    if (badge) {
+                        const current = parseInt(badge.textContent, 10) || 0;
+                        const next = newUnread ? current + 1 : Math.max(0, current - 1);
+                        badge.textContent = next;
+                        badge.title = `${next} unread`;
+                        badge.style.display = next === 0 ? 'none' : '';
+                        badge.className = `quick-link-badge ${next > 0 ? 'badge-unread' : 'badge-read'}`;
+                    }
+                }
+            }
+
+            // Update header unread count
+            setUnreadCount(Math.max(0, currentUnreadCount + (newUnread ? 1 : -1)));
+        } else {
+            if (btn) btn.disabled = false;
+            console.error('Failed to toggle read state:', result.error);
+        }
+    } catch (err) {
+        if (btn) btn.disabled = false;
+        console.error('Error toggling read state:', err);
+    }
+}
+
 async function emailAction(action, email, itemEl) {
     const buttons = itemEl.querySelectorAll('button');
     buttons.forEach(b => b.disabled = true);
@@ -986,8 +1111,7 @@ async function emailAction(action, email, itemEl) {
 
             // Decrement the header unread counter if email was unread
             if (email.isUnread) {
-                const current = parseInt(totalEmailsEl.textContent, 10) || 0;
-                totalEmailsEl.textContent = Math.max(0, current - 1);
+                setUnreadCount(Math.max(0, currentUnreadCount - 1));
             }
 
             // Remove the item from the DOM after the animation, then check if group is now empty

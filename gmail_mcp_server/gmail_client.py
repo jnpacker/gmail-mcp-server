@@ -279,6 +279,28 @@ class GmailClient:
                 results.append({'success': False, 'message_id': mid, 'error': str(error)})
         return results
 
+    def mark_as_unread(self, message_ids: List[str]) -> List[Dict[str, Any]]:
+        """Batch mark messages as unread by adding the UNREAD label.
+
+        Args:
+            message_ids: List of message IDs to mark as unread.
+
+        Returns:
+            List of result dicts with success, message_id, and error fields.
+        """
+        self._ensure_authenticated()
+        results = []
+        for mid in message_ids:
+            try:
+                self.service.users().messages().modify(
+                    userId='me', id=mid,
+                    body={'addLabelIds': ['UNREAD']}
+                ).execute()
+                results.append({'success': True, 'message_id': mid, 'error': None})
+            except HttpError as error:
+                results.append({'success': False, 'message_id': mid, 'error': str(error)})
+        return results
+
     def mark_as_read(self, message_ids: List[str]) -> List[Dict[str, Any]]:
         """Batch mark messages as read by removing the UNREAD label.
 

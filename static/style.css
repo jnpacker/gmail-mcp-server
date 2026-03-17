@@ -138,14 +138,14 @@ body {
     gap: 12px;
 }
 
-.header-content h1::before {
-    content: '📧';
-    font-size: 48px;
+.unread-badge-icon {
+    width: 48px;
+    height: 48px;
     display: block;
     transition: transform 0.3s ease;
 }
 
-.header-content h1.spinning::before {
+.header-content h1.spinning .unread-badge-icon {
     animation: spin 1.2s linear infinite;
 }
 
@@ -903,6 +903,29 @@ body {
 .summary-item-actions button:hover {
     border-color: var(--accent);
     color: var(--accent);
+}
+
+.unread-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    cursor: pointer;
+    border: 1.5px solid var(--border);
+    background: transparent;
+    padding: 0;
+    transition: all 0.15s;
+    align-self: center;
+}
+
+.unread-dot.unread-dot-active {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+.unread-dot:hover {
+    border-color: var(--accent);
+    opacity: 0.8;
 }
 
 .summary-item-actions .btn-archive:hover {

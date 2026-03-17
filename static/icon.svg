@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <!-- Blue rounded background -->
+  <rect width="192" height="192" rx="28" fill="#1a73e8"/>
+  <!-- White envelope body -->
+  <rect x="24" y="56" width="144" height="96" rx="8" fill="white"/>
+  <!-- Envelope flap V -->
+  <path d="M24 64 L96 116 L168 64" stroke="#1a73e8" stroke-width="8" stroke-linejoin="round" fill="none"/>
+  <!-- Bottom-left diagonal line -->
+  <line x1="24" y1="152" x2="76" y2="108" stroke="#1a73e8" stroke-width="6" stroke-linecap="round"/>
+  <!-- Bottom-right diagonal line -->
+  <line x1="168" y1="152" x2="116" y2="108" stroke="#1a73e8" stroke-width="6" stroke-linecap="round"/>
+</svg>
