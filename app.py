@@ -6,23 +6,67 @@ A clean web interface for Gmail inbox triage with auto-refresh every 15 minutes.
 
 import os
 import re
+import sys
 import json
 import ssl
 import time
+import secrets
+import hashlib
+import getpass
 import subprocess
 import threading
 from datetime import datetime, timedelta
-from flask import Flask, render_template, jsonify, request, make_response
+from functools import wraps
+from flask import Flask, render_template, jsonify, request, make_response, session
 from pathlib import Path
 
 from gmail_mcp_server.gmail_client import GmailClient
 from googleapiclient.errors import HttpError
 
+def _load_or_generate_secret():
+    secret_file = Path('.flask_secret')
+    if secret_file.exists():
+        return secret_file.read_text().strip()
+    key = secrets.token_hex(32)
+    secret_file.write_text(key)
+    return key
+
 app = Flask(__name__, static_folder='static', template_folder='templates')
+app.secret_key = os.environ.get('FLASK_SECRET_KEY') or _load_or_generate_secret()
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=4)
 gmail_client = GmailClient()
 # httplib2 (used inside google-api-python-client) is not thread-safe.
 # All gmail_client calls must hold this lock to prevent concurrent SSL access → SIGSEGV.
 gmail_client_lock = threading.Lock()
+
+# ── PIN helpers ───────────────────────────────────────────────
+
+def _load_pin_hash():
+    p = Path('.pincode')
+    if not p.exists():
+        return None, None
+    salt, h = p.read_text().strip().split(':')
+    return salt, h
+
+def _verify_pin(pin):
+    salt, stored = _load_pin_hash()
+    if salt is None:
+        return True  # no PIN configured
+    candidate = hashlib.pbkdf2_hmac('sha256', pin.encode(), salt.encode(), 260000).hex()
+    return secrets.compare_digest(candidate, stored)
+
+def _pin_configured():
+    return Path('.pincode').exists()
+
+def require_pin(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if _pin_configured() and not session.get('pin_ok'):
+            return jsonify({'error': 'pin_required'}), 401
+        return f(*args, **kwargs)
+    return decorated
+
+# ── Triage cache ───────────────────────────────────────────────
 
 # Store triage results in memory with timestamp
 TRIAGE_MODEL = 'claude-haiku-4-5'
@@ -303,6 +347,19 @@ def parse_triage_output(output):
         traceback.print_exc()
         return None
 
+@app.route('/api/pin/status')
+def pin_status():
+    return jsonify({'configured': _pin_configured(), 'authenticated': bool(session.get('pin_ok'))})
+
+@app.route('/api/pin/verify', methods=['POST'])
+def pin_verify():
+    pin = request.json.get('pin', '')
+    if _verify_pin(pin):
+        session.permanent = True
+        session['pin_ok'] = True
+        return jsonify({'ok': True})
+    return jsonify({'ok': False}), 401
+
 @app.route('/')
 def index():
     """Serve the dashboard HTML"""
@@ -312,6 +369,7 @@ def index():
     return response
 
 @app.route('/api/triage', methods=['GET'])
+@require_pin
 def get_triage():
     """API endpoint to get current triage data"""
     next_sync = None
@@ -328,6 +386,7 @@ def get_triage():
     })
 
 @app.route('/api/triage/refresh', methods=['POST'])
+@require_pin
 def refresh_triage():
     """API endpoint to manually trigger triage"""
     if not triage_lock.acquire(blocking=False):
@@ -389,6 +448,7 @@ def refresh_triage():
         triage_lock.release()
 
 @app.route('/api/emails/counts', methods=['GET'])
+@require_pin
 def get_email_counts():
     """Fetch total and unread counts for multiple labels via a single Gmail API batch request."""
     labels = request.args.getlist('label')
@@ -454,6 +514,7 @@ def get_email_counts():
 
 
 @app.route('/api/emails', methods=['GET'])
+@require_pin
 def get_emails_by_label():
     """Fetch emails from Gmail matching a label, returning subjects + message IDs."""
     label_name = request.args.get('label', '')
@@ -506,6 +567,7 @@ def get_emails_by_label():
 
 
 @app.route('/api/labels/triage', methods=['GET'])
+@require_pin
 def get_triage_labels():
     """Return all Triage/* label names currently in Gmail."""
     try:
@@ -526,10 +588,12 @@ ALLOWED_MODELS = {
 }
 
 @app.route('/api/model', methods=['GET'])
+@require_pin
 def get_model():
     return jsonify({'model': triage_model})
 
 @app.route('/api/model', methods=['POST'])
+@require_pin
 def set_model():
     global triage_model
     data = request.get_json()
@@ -542,6 +606,7 @@ def set_model():
 
 
 @app.route('/api/emails/readstate', methods=['POST'])
+@require_pin
 def set_email_readstate():
     """Mark an email as read or unread."""
     data = request.get_json()
@@ -561,6 +626,7 @@ def set_email_readstate():
 
 
 @app.route('/api/emails/archive', methods=['POST'])
+@require_pin
 def archive_email():
     """Archive an email by message ID."""
     data = request.get_json()
@@ -576,6 +642,7 @@ def archive_email():
 
 
 @app.route('/api/emails/delete', methods=['POST'])
+@require_pin
 def delete_email():
     """Delete an email by message ID."""
     data = request.get_json()
@@ -591,6 +658,14 @@ def delete_email():
 
 
 if __name__ == '__main__':
+    if '--set-pin' in sys.argv:
+        pin = getpass.getpass('Enter new PIN: ')
+        salt = secrets.token_hex(16)
+        h = hashlib.pbkdf2_hmac('sha256', pin.encode(), salt.encode(), 260000).hex()
+        Path('.pincode').write_text(f'{salt}:{h}')
+        print('PIN saved.')
+        sys.exit(0)
+
     print("Starting Flask app on http://localhost:5000")
     print("Press Ctrl+C to stop")
 

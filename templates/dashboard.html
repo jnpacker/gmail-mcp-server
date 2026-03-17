@@ -116,5 +116,29 @@
     </div>
 
     <script src="{{ url_for('static', filename='dashboard.js') }}?v={{ cache_bust }}"></script>
+
+    <div id="pinOverlay" class="pin-overlay hidden">
+      <div class="pin-card" id="pinCard">
+        <img src="/static/gmail-logo.png" height="16" style="width:auto;margin-bottom:1rem" alt="Gmail">
+        <h2 class="pin-title">Enter PIN</h2>
+        <div class="pin-dots" id="pinDots"></div>
+        <div class="pin-error" id="pinError">&nbsp;</div>
+        <div class="pin-pad">
+          <button class="pin-btn" data-digit="1">1</button>
+          <button class="pin-btn" data-digit="2">2</button>
+          <button class="pin-btn" data-digit="3">3</button>
+          <button class="pin-btn" data-digit="4">4</button>
+          <button class="pin-btn" data-digit="5">5</button>
+          <button class="pin-btn" data-digit="6">6</button>
+          <button class="pin-btn" data-digit="7">7</button>
+          <button class="pin-btn" data-digit="8">8</button>
+          <button class="pin-btn" data-digit="9">9</button>
+          <button class="pin-btn pin-btn-action" id="pinClear">C</button>
+          <button class="pin-btn" data-digit="0">0</button>
+          <button class="pin-btn pin-btn-action" id="pinBack">&#x232B;</button>
+        </div>
+        <button class="pin-submit-btn" id="pinSubmit">Unlock</button>
+      </div>
+    </div>
 </body>
 </html>
