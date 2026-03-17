@@ -1251,6 +1251,57 @@ body {
     }
 }
 
+/* PIN Overlay */
+.pin-overlay {
+  position: fixed; inset: 0; z-index: 9999;
+  background: var(--lighter);
+  display: flex; align-items: center; justify-content: center;
+}
+.pin-overlay.hidden { display: none; }
+.pin-card {
+  background: white; border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+  padding: 2rem 1.5rem; width: 320px; max-width: 92vw;
+  text-align: center;
+}
+.pin-title { font-size: 1.1rem; font-weight: 600; margin: 0 0 0.25rem; color: var(--primary); }
+.pin-dots { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin: 1.25rem 0 0.5rem; min-height: 16px; }
+.pin-dot {
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid var(--border); background: transparent;
+  transition: background 0.12s, border-color 0.12s;
+}
+.pin-dot.filled { background: var(--accent); border-color: var(--accent); }
+.pin-error { color: var(--danger); font-size: 0.8rem; min-height: 1.4em; margin-bottom: 0.75rem; }
+.pin-pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.pin-btn {
+  aspect-ratio: 1; border-radius: 50%; font-size: 1.4rem; font-weight: 500;
+  border: 1px solid var(--border); background: var(--lighter);
+  cursor: pointer; transition: background 0.12s, transform 0.08s;
+  display: flex; align-items: center; justify-content: center;
+  min-height: 68px; color: var(--primary);
+  -webkit-tap-highlight-color: transparent;
+}
+.pin-btn:hover { background: var(--light); }
+.pin-btn:active { background: var(--border); transform: scale(0.94); }
+.pin-btn-action { font-size: 1rem; color: var(--secondary); }
+@keyframes shake {
+  0%,100% { transform: translateX(0); }
+  20%,60% { transform: translateX(-10px); }
+  40%,80% { transform: translateX(10px); }
+}
+.pin-card.shake { animation: shake 0.38s ease; }
+.pin-submit-btn {
+  display: block; width: 100%; margin-top: 14px;
+  padding: 14px; border-radius: 10px; border: none;
+  background: var(--accent); color: white;
+  font-size: 1rem; font-weight: 600; cursor: pointer;
+  transition: background 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.pin-submit-btn:hover { background: #2563eb; }
+.pin-submit-btn:active { background: #1d4ed8; }
+
 @media (max-width: 768px) {
     .summary-pane,
     .cards-row {

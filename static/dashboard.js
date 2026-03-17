@@ -139,7 +139,7 @@ function setUnreadCount(n) {
 
 // ─── Initialization ───────────────────────────────────────────
 
-document.addEventListener('DOMContentLoaded', () => {
+function startApp() {
     // Render the header icon immediately so it doesn't show as broken during first sync
     updateFaviconBadge(0);
 
@@ -230,7 +230,89 @@ document.addEventListener('DOMContentLoaded', () => {
     // Load quick links immediately from live Gmail labels, in parallel with triage
     updateQuickLinks();
     startRefreshCycle();
-});
+}
+
+document.addEventListener('DOMContentLoaded', checkPinAuth);
+
+// ─── PIN Auth ─────────────────────────────────────────────────
+
+async function checkPinAuth() {
+    try {
+        const res = await fetch('/api/pin/status');
+        const data = await res.json();
+        if (!data.configured || data.authenticated) {
+            startApp();
+        } else {
+            document.getElementById('pinOverlay').classList.remove('hidden');
+            initPinPad();
+        }
+    } catch(e) {
+        startApp(); // fail open if status check fails
+    }
+}
+
+let pinDigits = [];
+
+function initPinPad() {
+    document.querySelectorAll('.pin-btn[data-digit]').forEach(btn => {
+        btn.addEventListener('click', () => pinInput(btn.dataset.digit));
+    });
+    document.getElementById('pinBack').addEventListener('click', pinBackspace);
+    document.getElementById('pinClear').addEventListener('click', pinClearAll);
+    document.getElementById('pinSubmit').addEventListener('click', submitPin);
+    document.addEventListener('keydown', e => {
+        if (/^[0-9]$/.test(e.key)) pinInput(e.key);
+        else if (e.key === 'Backspace') pinBackspace();
+        else if (e.key === 'Enter') submitPin();
+    });
+}
+
+function pinInput(digit) {
+    pinDigits.push(digit);
+    updatePinDots();
+}
+
+function pinBackspace() {
+    pinDigits.pop();
+    updatePinDots();
+}
+
+function pinClearAll() {
+    pinDigits = [];
+    updatePinDots();
+}
+
+function updatePinDots() {
+    const container = document.getElementById('pinDots');
+    container.innerHTML = '';
+    const count = Math.max(pinDigits.length, 1);
+    for (let i = 0; i < count; i++) {
+        const dot = document.createElement('span');
+        dot.className = 'pin-dot' + (i < pinDigits.length ? ' filled' : '');
+        container.appendChild(dot);
+    }
+}
+
+async function submitPin() {
+    if (pinDigits.length === 0) return;
+    const pin = pinDigits.join('');
+    const res = await fetch('/api/pin/verify', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({pin})
+    });
+    if (res.ok) {
+        document.getElementById('pinOverlay').classList.add('hidden');
+        startApp();
+    } else {
+        const card = document.getElementById('pinCard');
+        card.classList.add('shake');
+        document.getElementById('pinError').textContent = 'Incorrect PIN';
+        setTimeout(() => { card.classList.remove('shake'); }, 400);
+        pinDigits = [];
+        updatePinDots();
+    }
+}
 
 // ─── Core refresh cycle ───────────────────────────────────────
 
