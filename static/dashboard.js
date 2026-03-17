@@ -38,11 +38,27 @@ const headerSpinner = document.getElementById('headerSpinner');
 const headerTitle = document.querySelector('.header-content h1');
 const summaryContainer = document.getElementById('summaryContainer');
 const emailBodyContainer = document.getElementById('emailBodyContainer');
-const autoOpenToggle = document.getElementById('autoOpenToggle');
 const unreadOnlyToggle = document.getElementById('unreadOnlyToggle');
 const splitBtnArrow = document.getElementById('splitBtnArrow');
 const refreshDropdown = document.getElementById('refreshDropdown');
 const modelSelectEl = document.getElementById('modelSelect');
+
+// Mobile overlay elements
+const mobileEmailOverlay = document.getElementById('mobileEmailOverlay');
+const mobileEmailList = document.getElementById('mobileEmailList');
+const mobileOverlayTitle = document.getElementById('mobileOverlayTitle');
+const mobileOverlayGmail = document.getElementById('mobileOverlayGmail');
+const mobileOverlayBack = document.getElementById('mobileOverlayBack');
+
+// ─── Mobile helpers ───────────────────────────────────────────
+
+function isMobile() { return window.innerWidth <= 768; }
+
+// Icon SVGs (Heroicon outlines, 20×20 viewBox)
+const ICON_ARCHIVE = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="20" height="20"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"/></svg>`;
+const ICON_TRASH = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="20" height="20"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg>`;
+const ICON_ENVELOPE_UNREAD = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="20" height="20"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75"/><circle cx="18.5" cy="5.5" r="3.5" fill="#3b82f6" stroke="white" stroke-width="1"/></svg>`;
+const ICON_ENVELOPE_READ = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="20" height="20"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 9v.906a2.25 2.25 0 01-1.183 1.981l-6.478 3.488M2.25 9v.906a2.25 2.25 0 001.183 1.981l6.478 3.488m8.839 2.51l-4.66-2.51m0 0l-1.023-.55a2.25 2.25 0 00-2.134 0l-1.022.55m0 0l-4.661 2.51m16.5 1.615a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V8.844a2.25 2.25 0 011.183-1.98l7.5-4.04a2.25 2.25 0 012.134 0l7.5 4.04a2.25 2.25 0 011.183 1.98V19.5z"/></svg>`;
 
 // ─── Favicon Guard ────────────────────────────────────────────
 // Chrome PWA windows can steal the favicon from iframes (e.g. Gmail preview).
@@ -165,15 +181,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.addEventListener('click', () => refreshDropdown.classList.add('hidden'));
 
-    // Restore auto-open toggle from localStorage
-    const savedAutoOpen = localStorage.getItem('autoOpenGmail');
-    if (savedAutoOpen !== null) {
-        autoOpenToggle.checked = savedAutoOpen === 'true';
-    }
-    autoOpenToggle.addEventListener('change', () => {
-        localStorage.setItem('autoOpenGmail', autoOpenToggle.checked);
-    });
-
     // Restore unread-only toggle from localStorage (default: on)
     const savedUnreadOnly = localStorage.getItem('unreadOnly');
     if (savedUnreadOnly !== null) {
@@ -213,6 +220,12 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error('Failed to set model:', e);
         }
     });
+
+    if (mobileOverlayBack) {
+        mobileOverlayBack.addEventListener('click', () => {
+            mobileEmailOverlay.classList.add('hidden');
+        });
+    }
 
     // Load quick links immediately from live Gmail labels, in parallel with triage
     updateQuickLinks();
@@ -785,8 +798,11 @@ async function _updateQuickLinksInner() {
             if (e.target.closest('.quick-link-icon')) return;
             quickLinksContainer.querySelectorAll('.quick-link').forEach(el => el.classList.remove('active'));
             link.classList.add('active');
-            if (autoOpenToggle.checked) openGmailUrl(gmailUrl);
-            showSummary(group);
+            if (isMobile()) {
+                showMobileEmailList(group, gmailUrl);
+            } else {
+                showSummary(group);
+            }
         });
 
         const arrow = document.createElement('div');
@@ -948,6 +964,68 @@ async function showSummary(group) {
         }
     } catch (error) {
         console.error('Error fetching emails for summary:', error);
+    }
+}
+
+// ─── Mobile email list overlay ────────────────────────────────
+
+async function showMobileEmailList(group, gmailUrl) {
+    currentSummaryGroup = group;
+    mobileOverlayTitle.textContent = group.name.replace('Triage/', '');
+    mobileOverlayGmail.href = gmailUrl;
+    mobileEmailList.innerHTML = '<div class="loading">Loading...</div>';
+    mobileEmailOverlay.classList.remove('hidden');
+
+    try {
+        const response = await fetch(`/api/emails?label=${encodeURIComponent(group.name)}`);
+        const data = await response.json();
+
+        mobileEmailList.innerHTML = '';
+
+        if (!data.emails || data.emails.length === 0) {
+            mobileEmailList.innerHTML = '<div class="loading">No emails in this group — all clear!</div>';
+            return;
+        }
+
+        data.emails.forEach(email => {
+            const row = document.createElement('div');
+            row.className = `mobile-email-row ${email.isUnread ? 'mobile-row-unread' : 'mobile-row-read'}`;
+            row.id = `mobile-email-${email.id}`;
+            row.innerHTML = `
+                <button class="btn-icon-action btn-icon-readstate unread-dot ${email.isUnread ? 'unread-dot-active' : ''}" title="${email.isUnread ? 'Mark as read' : 'Mark as unread'}" data-id="${escapeHtml(email.id)}">${email.isUnread ? ICON_ENVELOPE_UNREAD : ICON_ENVELOPE_READ}</button>
+                <div class="mobile-row-text">
+                    <div class="mobile-row-subject">${escapeHtml(email.subject)}</div>
+                    <div class="mobile-row-sender">${escapeHtml(email.sender)}</div>
+                </div>
+                <div class="mobile-row-actions">
+                    <a class="btn-icon-action" href="https://mail.google.com/mail/u/0/#inbox/${escapeHtml(email.id)}" target="_blank" title="Open in Gmail"><img src="/static/gmail-logo.png" height="14" alt="Gmail"></a>
+                    <button class="btn-icon-action btn-mobile-archive" title="Archive" data-id="${escapeHtml(email.id)}">${ICON_ARCHIVE}</button>
+                    <button class="btn-icon-action btn-mobile-delete" title="Delete" data-id="${escapeHtml(email.id)}">${ICON_TRASH}</button>
+                </div>
+            `;
+            mobileEmailList.appendChild(row);
+
+            row.querySelector('.btn-icon-readstate').addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const btn = row.querySelector('.btn-icon-readstate');
+                await toggleReadState(email, row);
+                btn.innerHTML = email.isUnread ? ICON_ENVELOPE_UNREAD : ICON_ENVELOPE_READ;
+                row.className = `mobile-email-row ${email.isUnread ? 'mobile-row-unread' : 'mobile-row-read'}`;
+            });
+
+            row.querySelector('.btn-mobile-archive').addEventListener('click', (e) => {
+                e.stopPropagation();
+                emailAction('archive', email, row);
+            });
+
+            row.querySelector('.btn-mobile-delete').addEventListener('click', (e) => {
+                e.stopPropagation();
+                emailAction('delete', email, row);
+            });
+        });
+    } catch (error) {
+        console.error('Error fetching emails for mobile overlay:', error);
+        mobileEmailList.innerHTML = '<div class="loading">Error loading emails</div>';
     }
 }
 
@@ -1117,7 +1195,9 @@ async function emailAction(action, email, itemEl) {
             // Remove the item from the DOM after the animation, then check if group is now empty
             setTimeout(() => {
                 itemEl.remove();
-                const remaining = summaryContainer.querySelectorAll('.summary-item');
+                const remaining = mobileEmailOverlay.classList.contains('hidden')
+                    ? summaryContainer.querySelectorAll('.summary-item')
+                    : mobileEmailList.querySelectorAll('.mobile-email-row');
                 if (remaining.length === 0) {
                     // Find the card to the left (or right if leftmost) before removing
                     let nextLink = null;
