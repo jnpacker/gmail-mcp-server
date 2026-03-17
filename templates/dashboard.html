@@ -65,16 +65,23 @@
                     </label>
                 </div>
                 <div class="card-header-right">
-                    <label class="toggle-switch" title="Auto-open Gmail when clicking a link">
-                        <input type="checkbox" id="autoOpenToggle">
-                        <span class="toggle-slider"></span>
-                        <span class="toggle-label">Auto-open Gmail</span>
-                    </label>
                     <span id="loadTime" class="load-time"></span>
                 </div>
             </div>
             <div id="quickLinksContainer" class="quick-links-container">
             </div>
+        </div>
+
+        <!-- Mobile Email Card (3rd card, mobile only) -->
+        <div id="mobileEmailOverlay" class="mobile-email-overlay hidden">
+            <div class="mobile-overlay-header">
+                <button id="mobileOverlayBack" class="mobile-back-btn">← Back</button>
+                <h3 id="mobileOverlayTitle" class="mobile-overlay-title"></h3>
+                <a id="mobileOverlayGmail" class="mobile-overlay-gmail" target="_blank" title="Open in Gmail">
+                    <img src="/static/gmail-logo.png" height="14" alt="Gmail"> <span class="btn-gmail-arrow">↗</span>
+                </a>
+            </div>
+            <div id="mobileEmailList" class="mobile-email-list"></div>
         </div>
 
         <!-- Summary Pane -->
