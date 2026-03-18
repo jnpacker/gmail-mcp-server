@@ -17,7 +17,7 @@ import subprocess
 import threading
 from datetime import datetime, timedelta
 from functools import wraps
-from flask import Flask, render_template, jsonify, request, make_response, session
+from flask import Flask, render_template, jsonify, request, make_response, session, redirect
 from pathlib import Path
 
 from gmail_mcp_server.gmail_client import GmailClient
@@ -359,6 +359,11 @@ def pin_verify():
         session['pin_ok'] = True
         return jsonify({'ok': True})
     return jsonify({'ok': False}), 401
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect('/')
 
 @app.route('/')
 def index():
