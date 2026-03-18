@@ -1237,9 +1237,21 @@ async function emailAction(action, email, itemEl) {
             }
             buttons.forEach(b => b.remove());
 
-            // Decrement the quick link badge only if email was unread
+            // Decrement the quick link badge (unread) or read counter (read email)
             const groupName = currentSummaryGroup?.name;
-            if (groupName && email.isUnread) {
+            if (groupName && !email.isUnread) {
+                const ql = Array.from(quickLinksContainer.querySelectorAll('.quick-link'))
+                    .find(el => el.dataset.label === groupName);
+                if (ql) {
+                    const readSpan = ql.querySelector('.quick-link-read');
+                    if (readSpan) {
+                        const match = readSpan.textContent.match(/\+(\d+)/);
+                        const current = match ? parseInt(match[1], 10) : 0;
+                        const next = Math.max(0, current - 1);
+                        readSpan.textContent = next > 0 ? `+${next} read` : '';
+                    }
+                }
+            } else if (groupName && email.isUnread) {
                 const ql = Array.from(quickLinksContainer.querySelectorAll('.quick-link'))
                     .find(el => el.dataset.label === groupName);
                 if (ql) {
