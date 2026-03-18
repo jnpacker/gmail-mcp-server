@@ -375,7 +375,7 @@ def get_triage():
     next_sync = None
     if triage_cache['timestamp']:
         last_time = datetime.fromisoformat(triage_cache['timestamp'])
-        next_sync = (last_time + timedelta(minutes=15)).isoformat()
+        next_sync = (last_time + timedelta(minutes=5)).isoformat()
 
     return jsonify({
         'data': triage_cache['data'],
@@ -421,7 +421,7 @@ def refresh_triage():
             current_time = datetime.now()
             triage_cache['data'] = data
             triage_cache['timestamp'] = current_time.isoformat()
-            triage_cache['next_sync'] = (current_time + timedelta(minutes=15)).isoformat()
+            triage_cache['next_sync'] = (current_time + timedelta(minutes=5)).isoformat()
             triage_cache['model'] = data.get('model')
             triage_cache['last_unread_count'] = unread_count
             triage_cache['error'] = None
@@ -699,7 +699,7 @@ if __name__ == '__main__':
             if data:
                 triage_cache['data'] = data
                 triage_cache['timestamp'] = datetime.now().isoformat()
-                triage_cache['next_sync'] = (datetime.now() + timedelta(minutes=15)).isoformat()
+                triage_cache['next_sync'] = (datetime.now() + timedelta(minutes=5)).isoformat()
                 triage_cache['model'] = data.get('model')
                 triage_cache['last_unread_count'] = unread_count
                 print(f"Triage complete: {data['summary']['total']} emails processed")

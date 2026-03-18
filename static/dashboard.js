@@ -240,6 +240,9 @@ async function checkPinAuth() {
     try {
         const res = await fetch('/api/pin/status');
         const data = await res.json();
+        if (data.configured) {
+            document.querySelector('.btn-logout').style.display = 'inline-flex';
+        }
         if (!data.configured || data.authenticated) {
             startApp();
         } else {
@@ -1080,7 +1083,7 @@ async function showMobileEmailList(group, gmailUrl) {
                     <div class="mobile-row-sender">${escapeHtml(email.sender)}</div>
                 </div>
                 <div class="mobile-row-actions">
-                    <a class="btn-icon-action" href="https://mail.google.com/mail/u/0/#inbox/${escapeHtml(email.id)}" target="_blank" title="Open in Gmail"><img src="/static/gmail-logo.png" height="14" alt="Gmail"></a>
+                    <a class="btn-icon-action" href="https://mail.google.com/mail/u/0/#inbox/${escapeHtml(email.id)}" target="_blank" title="Open in Gmail"><img src="/static/gmail-m.png" height="16" alt="Gmail"></a>
                     <button class="btn-icon-action btn-mobile-archive" title="Archive" data-id="${escapeHtml(email.id)}">${ICON_ARCHIVE}</button>
                     <button class="btn-icon-action btn-mobile-delete" title="Delete" data-id="${escapeHtml(email.id)}">${ICON_TRASH}</button>
                 </div>
