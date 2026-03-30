@@ -52,8 +52,11 @@ GEMINI.md
 !./claude/commands/
 ./gemini
 !./gemini/commands/
+.gemini/commands/
 .sync-commands/
 logs/
 tests/test_server.py
 .pincode
 .flask_secret
+.image-tag
+k8s/secret.yaml

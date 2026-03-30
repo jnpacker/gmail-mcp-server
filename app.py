@@ -15,7 +15,7 @@ import hashlib
 import getpass
 import subprocess
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 from flask import Flask, render_template, jsonify, request, make_response, session, redirect
 from pathlib import Path
@@ -69,7 +69,7 @@ def require_pin(f):
 # ── Triage cache ───────────────────────────────────────────────
 
 # Store triage results in memory with timestamp
-TRIAGE_MODEL = 'claude-haiku-4-5'
+TRIAGE_MODEL = 'gemini-2.5-flash'
 triage_model = TRIAGE_MODEL  # mutable runtime selection
 
 # Keywords that indicate an authentication/authorization failure
@@ -109,6 +109,12 @@ triage_cache = {
     'last_unread_count': None,
     'error': None,  # {'type': 'auth'|'other', 'message': str} when set
 }
+
+# Tracks the currently-running triage subprocess for status reporting
+triage_process_info = {
+    'pid': None,
+    'start_time': None,  # epoch float
+}
 triage_lock = threading.Lock()
 
 def _is_auth_error(exc: Exception) -> bool:
@@ -132,75 +138,131 @@ def get_inbox_unread_count():
         print(f"[unread_count] Error: {e}")
         return None
 
+TRIAGE_TIMEOUT = 1200   # 20 minutes — enough for large inboxes (63+ emails)
+TRIAGE_HEARTBEAT = 30  # log "still running" every N seconds
+
 def run_triage():
-    """Execute the triage command and parse results"""
+    """Execute the triage command and parse results.
+
+    Uses Popen + polling so we can emit heartbeat log lines while the AI works
+    and detect true hangs vs. slow-but-alive runs.  Output is captured silently
+    on success; logged in full to the console on failure.
+    """
+    global triage_process_info
     try:
         cli_cmd = 'gemini' if triage_model.startswith('gemini') else 'claude'
-        result = subprocess.run(
-            [cli_cmd, '-p', '/triage', '--model', triage_model],
-            capture_output=True,
+        cmd = [cli_cmd, '-p', '/triage', '--model', triage_model]
+        cwd = os.path.dirname(os.path.abspath(__file__))
+
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=300,
-            cwd=os.path.dirname(os.path.abspath(__file__))
+            cwd=cwd,
         )
 
-        if result.returncode != 0:
-            print(f"Triage error (code {result.returncode})")
-            combined_output = (result.stderr or '') + (result.stdout or '')
+        start = time.time()
+        triage_process_info = {'pid': proc.pid, 'start_time': start}
+        print(f"[AI triage] Spawned pid={proc.pid} cmd={' '.join(cmd)} timeout={TRIAGE_TIMEOUT}s")
+
+        last_heartbeat = start
+        while proc.poll() is None:
+            elapsed = time.time() - start
+            if elapsed >= TRIAGE_TIMEOUT:
+                proc.kill()
+                proc.wait()
+                triage_process_info = {'pid': None, 'start_time': None}
+                print(f"[AI triage] KILLED after {TRIAGE_TIMEOUT}s timeout (pid={proc.pid})")
+                return None
+            if time.time() - last_heartbeat >= TRIAGE_HEARTBEAT:
+                print(f"[AI triage] Still running... ({elapsed:.0f}s elapsed, pid={proc.pid})")
+                last_heartbeat = time.time()
+            time.sleep(5)
+
+        stdout, stderr = proc.communicate()
+        elapsed = time.time() - start
+        triage_process_info = {'pid': None, 'start_time': None}
+
+        if proc.returncode != 0:
+            combined_output = (stderr or '') + (stdout or '')
             combined_lower = combined_output.lower()
+            print(f"[AI triage] FAILED (code={proc.returncode}, {elapsed:.0f}s):\n{combined_output.strip()}")
             if any(kw in combined_lower for kw in _AUTH_KEYWORDS):
-                raise AuthError(f"{cli_cmd.capitalize()} CLI authentication error (code {result.returncode}): {combined_output.strip()}")
+                raise AuthError(f"{cli_cmd.capitalize()} CLI authentication error (code {proc.returncode}): {combined_output.strip()}")
             return {
                 'labeled_groups': [],
                 'auto_cleaned': {'archived': [], 'deleted': []},
                 'summary': {'total': 0, 'labeled': 0, 'archived': 0, 'deleted': 0},
-                'raw_output': f"Error running triage (code {result.returncode}): {combined_output}",
+                'raw_output': f"Error running triage (code {proc.returncode}): {combined_output}",
                 'model': triage_model,
             }
 
-        triage_text = result.stdout
-        model = triage_model
-
-        print(f"[triage] model={model}, output={len(triage_text)} chars")
-
-        parsed = parse_triage_output(triage_text)
+        # Success — parse stdout, discard stderr (Gemini CLI writes progress there)
+        parsed = parse_triage_output(stdout)
         if not parsed:
-            print("Failed to parse triage output")
+            print(f"[AI triage] Parse failed ({elapsed:.0f}s). stderr:\n{(stderr or '').strip()}")
             return {
                 'labeled_groups': [],
                 'auto_cleaned': {'archived': [], 'deleted': []},
                 'summary': {'total': 0, 'labeled': 0, 'archived': 0, 'deleted': 0},
                 'raw_output': 'Failed to parse triage output',
-                'model': model,
+                'model': triage_model,
             }
-        parsed['model'] = model
+
+        print(f"[AI triage] Completed in {elapsed:.0f}s")
+        parsed['model'] = triage_model
         return parsed
+
     except AuthError:
-        raise  # propagate auth errors to the caller
+        raise
     except FileNotFoundError:
         cli_name = "Gemini CLI" if triage_model.startswith('gemini') else "Claude Code CLI"
-        cmd_name = 'gemini' if triage_model.startswith('gemini') else 'claude'
-        print(f"Error: '{cmd_name}' command not found. Make sure {cli_name} is installed.")
-        return None
-    except subprocess.TimeoutExpired:
-        print("Triage timed out after 300 seconds")
+        print(f"[AI triage] {cli_name} not found in PATH")
+        triage_process_info = {'pid': None, 'start_time': None}
         return None
     except Exception as e:
-        print(f"Error running triage: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"[AI triage] Unexpected error: {e}")
+        triage_process_info = {'pid': None, 'start_time': None}
         return None
+
+_ANSI_ESCAPE = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
 
 def parse_triage_output(output):
     """
     Parse the triage dashboard output and extract structured data.
 
-    Parses three sections:
-      1. LABELED   — group headers (┌─ Triage/Name) with items (│  · ...)
-      2. AUTO-CLEANED — archived count and deleted item summaries
-      3. QUICK LINKS — group name + count (fallback / count source)
+    Tries JSON block extraction first (Step 5 of triage.md), then falls back
+    to regex parsing of the ASCII-art dashboard for summary/groups/auto-cleaned.
     """
     try:
+        # Strip ANSI escape codes — Gemini CLI emits them even when stdout is a pipe
+        output = _ANSI_ESCAPE.sub('', output)
+
+        # ── JSON-first path (reliable across Claude and Gemini) ──
+        json_match = re.search(r'```json\s*(\{.*?\})\s*```', output, re.DOTALL)
+        raw_json_match = None if json_match else re.search(r'(\{"summary".*?\})\s*$', output, re.DOTALL)
+        json_candidate = json_match.group(1) if json_match else (raw_json_match.group(1) if raw_json_match else None)
+        if json_candidate:
+            try:
+                data = json.loads(json_candidate)
+                priority_order = {'Critical': 0, 'Important': 1, 'Info': 2}
+                groups = sorted(
+                    data.get('groups', []),
+                    key=lambda g: priority_order.get(g.get('priority', 'Info'), 99)
+                )
+                return {
+                    'labeled_groups': groups,
+                    'auto_cleaned': {
+                        'archived': data.get('archived', []),
+                        'deleted': data.get('deleted', []),
+                    },
+                    'summary': data.get('summary', {'total': 0, 'labeled': 0, 'archived': 0, 'deleted': 0}),
+                    'raw_output': output,
+                }
+            except (json.JSONDecodeError, KeyError):
+                pass
+
         lines = output.split('\n')
 
         result = {
@@ -373,6 +435,17 @@ def index():
     response.headers['Cache-Control'] = 'no-store'
     return response
 
+@app.route('/api/triage/running', methods=['GET'])
+@require_pin
+def get_triage_running():
+    """Return whether a triage subprocess is currently running, with elapsed time."""
+    locked = triage_lock.locked()
+    pid = triage_process_info.get('pid') if locked else None
+    start = triage_process_info.get('start_time')
+    elapsed = round(time.time() - start, 1) if start and locked else None
+    return jsonify({'running': locked, 'pid': pid, 'elapsed_seconds': elapsed, 'timeout_seconds': TRIAGE_TIMEOUT})
+
+
 @app.route('/api/triage', methods=['GET'])
 @require_pin
 def get_triage():
@@ -388,6 +461,7 @@ def get_triage():
         'next_sync': next_sync,
         'model': triage_cache.get('model'),
         'error': triage_cache.get('error'),
+        'running': triage_lock.locked(),
     })
 
 @app.route('/api/triage/refresh', methods=['POST'])
@@ -398,42 +472,40 @@ def refresh_triage():
         return jsonify({'success': False, 'error': 'Triage already in progress'}), 409
 
     try:
-        print("=== Triage refresh triggered ===")
+        print(f"[AI triage] Starting with model: {triage_model}")
+        triage_cache['error'] = None  # clear stale error so frontend doesn't show old failure
 
         try:
             unread_count = get_inbox_unread_count()
         except AuthError as e:
             msg = f"Gmail authentication failed: {e}"
-            print(f"[triage] Auth error during unread count: {e}")
             triage_cache['error'] = {'type': 'auth', 'message': msg}
             return jsonify({'success': False, 'auth_error': True, 'error': msg}), 401
 
-        print(f"[triage] inbox unread count: {unread_count}")
-        if unread_count is not None:
-            if unread_count == 0:
-                print("[triage] Skipping — no unread emails")
-                return jsonify({'success': False, 'skipped': True, 'reason': 'No unread emails found'})
+        print(f"[AI triage] Unread: {unread_count}")
+        if unread_count is not None and unread_count == 0:
+            return jsonify({'success': False, 'skipped': True, 'reason': 'No unread emails found'})
 
         try:
             data = run_triage()
         except AuthError as e:
             msg = f"CLI authentication failed: {e}"
-            print(f"[triage] Auth error during triage run: {e}")
             triage_cache['error'] = {'type': 'auth', 'message': msg}
             return jsonify({'success': False, 'auth_error': True, 'error': msg}), 401
 
         if data:
-            current_time = datetime.now()
+            current_time = datetime.now(timezone.utc)
             triage_cache['data'] = data
             triage_cache['timestamp'] = current_time.isoformat()
             triage_cache['next_sync'] = (current_time + timedelta(minutes=5)).isoformat()
             triage_cache['model'] = data.get('model')
             triage_cache['last_unread_count'] = unread_count
             triage_cache['error'] = None
-            print(f"Triage complete: {data['summary']['total']} emails processed")
-            print(f"Found {len(data['labeled_groups'])} email groups")
-            for g in data['labeled_groups']:
-                print(f"  {g['name']}: {g['count']} emails")
+            
+            summary = data['summary']
+            groups_summary = ', '.join([f"{g['name'].split('/')[-1]}({g['count']})" for g in data['labeled_groups']])
+            print(f"[AI triage] {summary['total']} emails processed: {summary['labeled']} labeled, {summary['archived']} archived, {summary['deleted']} deleted | Groups: {groups_summary}")
+            
             return jsonify({
                 'success': True,
                 'data': data,
@@ -442,7 +514,6 @@ def refresh_triage():
                 'model': triage_cache['model'],
             })
         else:
-            print("Triage failed - no data returned")
             msg = 'Triage timed out or failed. Check console output for details.'
             triage_cache['error'] = {'type': 'other', 'message': msg}
             return jsonify({
@@ -462,7 +533,8 @@ def get_email_counts():
 
     results = {}
     try:
-        gmail_client._ensure_authenticated()
+        with gmail_client_lock:
+            gmail_client._ensure_authenticated()
 
         count_data = {name: {'total': 0, 'unread': 0} for name in labels}
         error_labels = set()
@@ -481,23 +553,26 @@ def get_email_counts():
         BATCH_SIZE = 5
         for chunk_start in range(0, len(labels), BATCH_SIZE):
             chunk = labels[chunk_start:chunk_start + BATCH_SIZE]
-            batch = gmail_client.service.new_batch_http_request()
-            for label_name in chunk:
-                q_label = label_name.replace('/', '-').lower()  # Gmail search uses dashes: triage-security
-                batch.add(
-                    gmail_client.service.users().messages().list(
-                        userId='me', q=f'label:{q_label} in:inbox', maxResults=100
-                    ),
-                    callback=make_callback(label_name, 'total')
-                )
-                batch.add(
-                    gmail_client.service.users().messages().list(
-                        userId='me', q=f'label:{q_label} in:inbox is:unread', maxResults=100
-                    ),
-                    callback=make_callback(label_name, 'unread')
-                )
+            # Hold the lock for the entire build+execute cycle — httplib2 is not thread-safe
+            # and releasing between build and execute allows another thread to corrupt the connection.
             try:
-                _with_ssl_retry(batch.execute)
+                with gmail_client_lock:
+                    batch = gmail_client.service.new_batch_http_request()
+                    for label_name in chunk:
+                        q_label = label_name.replace('/', '-').lower()  # Gmail search uses dashes: triage-security
+                        batch.add(
+                            gmail_client.service.users().messages().list(
+                                userId='me', q=f'label:{q_label} in:inbox', maxResults=100
+                            ),
+                            callback=make_callback(label_name, 'total')
+                        )
+                        batch.add(
+                            gmail_client.service.users().messages().list(
+                                userId='me', q=f'label:{q_label} in:inbox is:unread', maxResults=100
+                            ),
+                            callback=make_callback(label_name, 'unread')
+                        )
+                    _with_ssl_retry(batch.execute)
             except Exception as e:
                 if not _is_retryable_gmail_error(e):
                     raise
@@ -527,19 +602,22 @@ def get_emails_by_label():
         return jsonify({'error': 'label parameter required'}), 400
 
     try:
-        gmail_client._ensure_authenticated()
+        with gmail_client_lock:
+            gmail_client._ensure_authenticated()
         # Resolve label name to ID — if the label doesn't exist, return empty list
         try:
-            label_id = gmail_client._resolve_label_name_to_id(label_name)
+            with gmail_client_lock:
+                label_id = gmail_client._resolve_label_name_to_id(label_name)
         except ValueError as e:
             print(f"Label not found, returning empty list for '{label_name}': {e}")
             return jsonify({'emails': []})
 
         # Search using label ID and INBOX, with SSL retry
         try:
-            result = _with_ssl_retry(lambda: gmail_client.service.users().messages().list(
-                userId='me', labelIds=[label_id, 'INBOX'], maxResults=50
-            ).execute())
+            with gmail_client_lock:
+                result = _with_ssl_retry(lambda: gmail_client.service.users().messages().list(
+                    userId='me', labelIds=[label_id, 'INBOX'], maxResults=50
+                ).execute())
         except Exception as e:
             print(f"Error fetching emails for label '{label_name}': {e}")
             if _is_ssl_error(e):
@@ -550,13 +628,15 @@ def get_emails_by_label():
         emails = []
         for msg in messages:
             try:
-                details = _with_ssl_retry(lambda mid=msg['id']: gmail_client._get_email_details(mid))
+                with gmail_client_lock:
+                    details = _with_ssl_retry(lambda mid=msg['id']: gmail_client._get_email_details(mid))
             except Exception as e:
                 print(f"Error fetching email details for {msg['id']}: {e}")
                 continue
             if details:
                 emails.append({
                     'id': details['id'],
+                    'threadId': details.get('threadId', details['id']),
                     'subject': details['subject'],
                     'sender': details['sender'],
                     'date': details['date'],
@@ -576,8 +656,9 @@ def get_emails_by_label():
 def get_triage_labels():
     """Return all Triage/* label names currently in Gmail."""
     try:
-        gmail_client._ensure_authenticated()
-        labels = gmail_client.list_labels()
+        with gmail_client_lock:
+            gmail_client._ensure_authenticated()
+            labels = gmail_client.list_labels()
         triage_labels = sorted(l['name'] for l in labels if l['name'].startswith('Triage/'))
         return jsonify({'labels': triage_labels})
     except Exception as e:
@@ -605,9 +686,10 @@ def set_model():
     model = data.get('model') if data else None
     if not model or model not in ALLOWED_MODELS:
         return jsonify({'error': f'Invalid model. Allowed: {sorted(ALLOWED_MODELS)}'}), 400
+    previous_model = triage_model
     triage_model = model
     print(f"[model] Switched to {triage_model}")
-    return jsonify({'model': triage_model})
+    return jsonify({'previous_model': previous_model, 'model': triage_model})
 
 
 @app.route('/api/emails/readstate', methods=['POST'])
@@ -621,10 +703,11 @@ def set_email_readstate():
         return jsonify({'error': 'message_id and unread required'}), 400
 
     try:
-        if unread:
-            result = gmail_client.mark_as_unread([message_id])[0]
-        else:
-            result = gmail_client.mark_as_read([message_id])[0]
+        with gmail_client_lock:
+            if unread:
+                result = gmail_client.mark_as_unread([message_id])[0]
+            else:
+                result = gmail_client.mark_as_read([message_id])[0]
         return jsonify(result)
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -640,7 +723,8 @@ def archive_email():
         return jsonify({'error': 'message_id required'}), 400
 
     try:
-        result = gmail_client.archive_email(message_id)
+        with gmail_client_lock:
+            result = gmail_client.archive_email(message_id)
         return jsonify(result)
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -656,8 +740,51 @@ def delete_email():
         return jsonify({'error': 'message_id required'}), 400
 
     try:
-        result = gmail_client.delete_email(message_id)
+        with gmail_client_lock:
+            result = gmail_client.delete_email(message_id)
         return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/emails/unarchive', methods=['POST'])
+@require_pin
+def unarchive_email():
+    """Move an archived email back to inbox."""
+    data = request.get_json()
+    message_id = data.get('message_id') if data else None
+    if not message_id:
+        return jsonify({'error': 'message_id required'}), 400
+
+    try:
+        with gmail_client_lock:
+            gmail_client._ensure_authenticated()
+            gmail_client.service.users().messages().modify(
+                userId='me', id=message_id,
+                body={'addLabelIds': ['INBOX']}
+            ).execute()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/emails/undelete', methods=['POST'])
+@require_pin
+def undelete_email():
+    """Move a trashed email back to inbox."""
+    data = request.get_json()
+    message_id = data.get('message_id') if data else None
+    if not message_id:
+        return jsonify({'error': 'message_id required'}), 400
+
+    try:
+        with gmail_client_lock:
+            gmail_client._ensure_authenticated()
+            gmail_client.service.users().messages().modify(
+                userId='me', id=message_id,
+                body={'addLabelIds': ['INBOX'], 'removeLabelIds': ['TRASH']}
+            ).execute()
+        return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -671,53 +798,54 @@ if __name__ == '__main__':
         print('PIN saved.')
         sys.exit(0)
 
-    print("Starting Flask app on http://localhost:5000")
+    print("Starting Flask app on http://0.0.0.0:5000")
     print("Press Ctrl+C to stop")
 
     def run_initial_triage():
         import time
         time.sleep(1)
-        print("Running initial triage in background...")
         with triage_lock:
+            print(f"[AI triage] Starting at startup with model: {triage_model}")
             try:
                 unread_count = get_inbox_unread_count()
             except AuthError as e:
                 msg = f"Gmail authentication failed: {e}"
-                print(f"[triage] Auth error during initial unread count: {e}")
                 triage_cache['error'] = {'type': 'auth', 'message': msg}
-                triage_cache['timestamp'] = datetime.now().isoformat()
+                triage_cache['timestamp'] = datetime.now(timezone.utc).isoformat()
                 return
-            print(f"[triage] inbox unread count: {unread_count}")
+
+            print(f"[AI triage] Unread: {unread_count}")
             if unread_count == 0:
-                print("[triage] Skipping initial triage — no unread emails")
-                triage_cache['timestamp'] = datetime.now().isoformat()
+                triage_cache['timestamp'] = datetime.now(timezone.utc).isoformat()
                 triage_cache['data'] = {'labeled_groups': [], 'summary': {}, 'auto_cleaned': {}}
                 return
+
             try:
                 data = run_triage()
             except AuthError as e:
                 msg = f"CLI authentication failed: {e}"
-                print(f"[triage] Auth error during initial triage run: {e}")
                 triage_cache['error'] = {'type': 'auth', 'message': msg}
-                triage_cache['timestamp'] = datetime.now().isoformat()
+                triage_cache['timestamp'] = datetime.now(timezone.utc).isoformat()
                 return
+            
             if data:
                 triage_cache['data'] = data
-                triage_cache['timestamp'] = datetime.now().isoformat()
-                triage_cache['next_sync'] = (datetime.now() + timedelta(minutes=5)).isoformat()
+                triage_cache['timestamp'] = datetime.now(timezone.utc).isoformat()
+                triage_cache['next_sync'] = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
                 triage_cache['model'] = data.get('model')
                 triage_cache['last_unread_count'] = unread_count
-                print(f"Triage complete: {data['summary']['total']} emails processed")
-                print(f"Found {len(data['labeled_groups'])} email groups")
-                for g in data['labeled_groups']:
-                    print(f"  {g['name']}: {g['count']} emails, {len(g['items'])} items")
-                if not data['labeled_groups']:
-                    print("WARNING: No labeled groups found.")
-                    print(f"Raw output length: {len(data.get('raw_output', ''))}")
+                triage_cache['error'] = None
+
+                summary = data['summary']
+                groups_summary = ', '.join([f"{g['name'].split('/')[-1]}({g['count']})" for g in data['labeled_groups']])
+                print(f"[AI triage] {summary['total']} emails processed: {summary['labeled']} labeled, {summary['archived']} archived, {summary['deleted']} deleted | Groups: {groups_summary}")
             else:
-                print("Triage failed - no data returned")
+                msg = 'Triage timed out or failed at startup. Check console output for details.'
+                triage_cache['error'] = {'type': 'other', 'message': msg}
+                triage_cache['timestamp'] = datetime.now(timezone.utc).isoformat()
+                print(f"[AI triage] {msg}")
 
     triage_thread = threading.Thread(target=run_initial_triage, daemon=True)
     triage_thread.start()
 
-    app.run(debug=False, port=5000, threaded=True)
+    app.run(host='0.0.0.0', debug=False, port=5000, threaded=True)

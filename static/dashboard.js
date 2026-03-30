@@ -43,6 +43,8 @@ const splitBtnArrow = document.getElementById('splitBtnArrow');
 const refreshDropdown = document.getElementById('refreshDropdown');
 const modelSelectEl = document.getElementById('modelSelect');
 
+const undoToastContainer = document.getElementById('undoToastContainer');
+
 // Mobile overlay elements
 const mobileEmailOverlay = document.getElementById('mobileEmailOverlay');
 const mobileEmailList = document.getElementById('mobileEmailList');
@@ -53,6 +55,8 @@ const mobileOverlayBack = document.getElementById('mobileOverlayBack');
 // ─── Mobile helpers ───────────────────────────────────────────
 
 function isMobile() { return window.innerWidth <= 768; }
+
+
 
 // Icon SVGs (Heroicon outlines, 20×20 viewBox)
 const ICON_ARCHIVE = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="20" height="20"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"/></svg>`;
@@ -337,6 +341,16 @@ async function startRefreshCycle() {
         updateUI();
         updateSyncTimes(cached);
     } else {
+        // Sync loading timer with server-side elapsed time before showing spinner.
+        // This prevents the timer resetting to 0 on page refresh mid-triage.
+        try {
+            const runRes = await fetch('/api/triage/running');
+            const runData = await runRes.json();
+            if (runData.running && runData.elapsed_seconds > 0) {
+                loadingStartTime = Date.now() - Math.floor(runData.elapsed_seconds * 1000);
+                localStorage.setItem('loadingStartTime', loadingStartTime);
+            }
+        } catch (e) { /* non-fatal */ }
         showSpinner();
         await pollUntilData();
     }
@@ -397,8 +411,9 @@ function pollUntilData() {
                     return;
                 }
 
-                // Other error types (timeout, etc.) — surface and stop polling
-                if (result.error?.type === 'other') {
+                // Other error types (timeout, etc.) — only surface if triage is not currently running
+                // (a new triage clears the error; stale errors linger until a fresh run completes)
+                if (result.error?.type === 'other' && !result.running) {
                     clearInterval(timer);
                     hideSpinner();
                     showError(result.error.message);
@@ -526,6 +541,7 @@ function startLoadingTimer() {
     // Otherwise keep the existing one (from page refresh during triage)
     if (!loadingStartTime) {
         loadingStartTime = Date.now();
+        localStorage.setItem('loadingStartTime', loadingStartTime);
     }
     updateLoadingTimerDisplay(0);
     loadingTimerInterval = setInterval(() => {
@@ -1058,6 +1074,7 @@ async function showMobileEmailList(group, gmailUrl) {
     currentSummaryGroup = group;
     mobileOverlayTitle.textContent = group.name.replace('Triage/', '');
     mobileOverlayGmail.href = gmailUrl;
+    mobileOverlayGmail.target = '_blank';
     mobileEmailList.innerHTML = '<div class="loading">Loading...</div>';
     mobileEmailOverlay.classList.remove('hidden');
 
@@ -1083,7 +1100,7 @@ async function showMobileEmailList(group, gmailUrl) {
                     <div class="mobile-row-sender">${escapeHtml(email.sender)}</div>
                 </div>
                 <div class="mobile-row-actions">
-                    <a class="btn-icon-action" href="https://mail.google.com/mail/u/0/#inbox/${escapeHtml(email.id)}" target="_blank" title="Open in Gmail"><img src="/static/gmail-m.png" height="16" alt="Gmail"></a>
+                    <a class="btn-icon-action" href="${isMobile() ? `https://mail.google.com/mail/mu/mp/#cv/Inbox/${escapeHtml(email.threadId || email.id)}` : `https://mail.google.com/mail/u/0/#inbox/${escapeHtml(email.threadId || email.id)}`}" target="_blank" title="Open in Gmail"><img src="/static/gmail-m.png" height="16" alt="Gmail"></a>
                     <button class="btn-icon-action btn-mobile-archive" title="Archive" data-id="${escapeHtml(email.id)}">${ICON_ARCHIVE}</button>
                     <button class="btn-icon-action btn-mobile-delete" title="Delete" data-id="${escapeHtml(email.id)}">${ICON_TRASH}</button>
                 </div>
@@ -1212,6 +1229,75 @@ async function toggleReadState(email, itemEl) {
     }
 }
 
+function showUndoToast(action, email, groupName) {
+    const label = action === 'archive' ? 'Archived' : 'Deleted';
+    const subject = email.subject.length > 45 ? email.subject.slice(0, 45) + '…' : email.subject;
+
+    const toast = document.createElement('div');
+    toast.className = 'undo-toast';
+    toast.innerHTML = `
+        <div class="undo-toast-message">${label}: <strong>${escapeHtml(subject)}</strong></div>
+        <button class="undo-toast-btn">Undo</button>
+        <div class="undo-toast-progress"></div>
+    `;
+    undoToastContainer.appendChild(toast);
+
+    let dismissed = false;
+
+    const dismiss = () => {
+        if (dismissed) return;
+        dismissed = true;
+        toast.classList.add('toast-out');
+        setTimeout(() => toast.remove(), 280);
+    };
+
+    const timer = setTimeout(dismiss, 10000);
+
+    toast.querySelector('.undo-toast-btn').addEventListener('click', async () => {
+        if (dismissed) return;
+        dismissed = true;
+        clearTimeout(timer);
+        toast.remove();
+
+        const endpoint = action === 'archive' ? '/api/emails/unarchive' : '/api/emails/undelete';
+        try {
+            const res = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message_id: email.id })
+            });
+            const result = await res.json();
+            if (result.success) {
+                // Remove from manual tracking arrays
+                if (action === 'archive') {
+                    const idx = manuallyArchived.findIndex(e => e.id === email.id);
+                    if (idx !== -1) {
+                        manuallyArchived.splice(idx, 1);
+                        sessionStorage.setItem('manuallyArchived', JSON.stringify(manuallyArchived));
+                        renderArchivedItems();
+                    }
+                } else {
+                    const idx = manuallyDeleted.findIndex(e => e.id === email.id);
+                    if (idx !== -1) {
+                        manuallyDeleted.splice(idx, 1);
+                        sessionStorage.setItem('manuallyDeleted', JSON.stringify(manuallyDeleted));
+                        renderDeletedItems();
+                    }
+                }
+                // Refresh group summary if it's currently selected
+                if (currentSummaryGroup && currentSummaryGroup.name === groupName) {
+                    showSummary(currentSummaryGroup);
+                }
+                updateQuickLinks();
+            } else {
+                console.error('Undo failed:', result.error);
+            }
+        } catch (e) {
+            console.error('Undo error:', e);
+        }
+    });
+}
+
 async function emailAction(action, email, itemEl) {
     const buttons = itemEl.querySelectorAll('button');
     buttons.forEach(b => b.disabled = true);
@@ -1239,6 +1325,7 @@ async function emailAction(action, email, itemEl) {
                 renderArchivedItems();
             }
             buttons.forEach(b => b.remove());
+            showUndoToast(action, email, currentSummaryGroup?.name);
 
             // Decrement the quick link badge (unread) or read counter (read email)
             const groupName = currentSummaryGroup?.name;
@@ -1337,8 +1424,10 @@ function openGmailUrl(url) {
 
 function buildGmailSearchUrl(groupName) {
     const searchQuery = `in:inbox label:${groupName}`;
-    const encoded = encodeURIComponent(searchQuery);
-    return `https://mail.google.com/mail/u/0/#search/${encoded}`;
+    if (isMobile()) {
+        return `https://mail.google.com/mail/mu/mp/#tl/search/${encodeURIComponent(searchQuery)}`;
+    }
+    return `https://mail.google.com/mail/u/0/#search/${encodeURIComponent(searchQuery)}`;
 }
 
 // ─── Utilities ────────────────────────────────────────────────

@@ -146,9 +146,15 @@ rm .pincode
 
 ### Running in Kubernetes
 
-When running as a container in Kubernetes, mount the pre-hashed `.pincode` value as a Secret rather than generating it on-disk.
+All secrets are consolidated in a single `gmail-mcp-secrets` Kubernetes Secret (see `k8s/secret.yaml_example`). When using PIN protection, include the pre-hashed `.pincode` value there rather than generating it on-disk.
 
-**1. Generate the hash locally:**
+**1. Generate the PIN hash locally:**
+```bash
+make set-pin        # writes .pincode to repo root
+cat .pincode        # copy the "salt:hash" string
+```
+
+Or generate it directly:
 ```bash
 python3 -c "
 import secrets, hashlib
@@ -159,33 +165,21 @@ print(f'{salt}:{h}')
 "
 ```
 
-**2. Create a Kubernetes Secret:**
-```bash
-kubectl create secret generic gmail-dashboard-pin \
-  --from-literal=pincode='<salt:hash from above>' \
-  --from-literal=flask-secret-key="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
-```
-
-**3. Mount it in your Pod spec:**
+**2. Add it to your `k8s/secret.yaml` (alongside the other secrets):**
 ```yaml
-env:
-  - name: FLASK_SECRET_KEY
-    valueFrom:
-      secretKeyRef:
-        name: gmail-dashboard-pin
-        key: flask-secret-key
-volumeMounts:
-  - name: pin-secret
-    mountPath: /app/.pincode
-    subPath: pincode
-    readOnly: true
-volumes:
-  - name: pin-secret
-    secret:
-      secretName: gmail-dashboard-pin
+stringData:
+  .pincode: "salt:hash-from-above"
+  FLASK_SECRET_KEY: "$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+  # ... other fields from k8s/secret.yaml_example
 ```
 
-The app reads `.pincode` from the working directory (or override with `PINCODE_PATH` if you prefer a different location). The `FLASK_SECRET_KEY` env var takes precedence over the auto-generated `.flask_secret` file, which is what you want for a stateless container.
+**3. Apply and deploy:**
+```bash
+kubectl apply -f k8s/secret.yaml
+kubectl apply -f k8s/deployment.yaml
+```
+
+The entrypoint copies `.pincode` from the read-only `/secrets/` mount to `/app/` on startup. `FLASK_SECRET_KEY` is injected as an environment variable to keep sessions stable across pod restarts.
 
 ## Make Commands
 

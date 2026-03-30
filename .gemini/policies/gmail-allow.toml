@@ -1,0 +1,5 @@
+# Auto-allow all Gmail MCP tools in non-interactive (headless) mode
+[[rule]]
+mcpName = "gmail"
+decision = "allow"
+priority = 200

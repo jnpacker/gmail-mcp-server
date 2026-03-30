@@ -1,6 +1,6 @@
 # Gmail MCP Server — Podman Setup
 
-Run the dashboard as a Podman container on any Linux host (including a Proxmox VM or privileged LXC). Podman is a drop-in Docker replacement — all commands below work with `docker` as well.
+Run the dashboard as a Podman container on any Linux host (including a Proxmox VM). Podman is a drop-in Docker replacement — all commands below work with `docker` as well.
 
 ## Prerequisites
 
@@ -8,6 +8,7 @@ Run the dashboard as a Podman container on any Linux host (including a Proxmox V
 - `credentials.json` from Google Cloud Console (OAuth 2.0 Desktop client)
 - `token.json` obtained by running `make auth` on a machine with a browser (see step 3)
 - An Anthropic API key **or** access to Claude via Vertex AI (see [Vertex AI](#vertex-ai-instead-of-anthropic-api-key))
+- *(Optional)* A Gemini API key from [Google AI Studio](https://aistudio.google.com/app/apikey) — Gemini CLI is pre-installed in the image
 
 ---
 
@@ -144,6 +145,32 @@ The entrypoint re-copies the updated `token.json` on restart.
 
 ---
 
+## Gemini CLI (Optional)
+
+Gemini CLI can be used alongside Claude Code. The simplest auth method inside a container is a **Gemini API key** — no browser login or GCP credentials required.
+
+### 1. Get an API key
+
+Go to [Google AI Studio → API Keys](https://aistudio.google.com/app/apikey) and create a key.
+
+### 2. Add it to your env file
+
+```sh
+echo 'GEMINI_API_KEY=AIza...' >> ~/.gmail-mcp-secrets/env
+```
+
+The key will be passed into the container via `--env-file` automatically — no extra mounts needed.
+
+### 3. Verify inside the running container
+
+```sh
+podman exec -it gmail-dashboard gemini --version
+```
+
+---
+
+---
+
 ## Vertex AI (instead of Anthropic API key)
 
 Use these steps if Claude is accessed through Google Cloud Vertex AI (`CLAUDE_CODE_USE_VERTEX=1`) rather than a direct Anthropic API key.
@@ -219,6 +246,7 @@ The `GOOGLE_APPLICATION_CREDENTIALS` env var points the Claude subprocess to the
 | OAuth token | `~/.gmail-mcp-secrets/token.json` (mounted `:ro` at `/secrets/`, copied to `/app/` on start) |
 | API key (Anthropic) | `~/.gmail-mcp-secrets/env` → `ANTHROPIC_API_KEY` |
 | API key (Vertex AI) | `~/.gmail-mcp-secrets/env` → `CLAUDE_CODE_USE_VERTEX`, `ANTHROPIC_VERTEX_PROJECT_ID`, `GOOGLE_APPLICATION_CREDENTIALS` |
+| Gemini CLI API key | `~/.gmail-mcp-secrets/env` → `GEMINI_API_KEY` |
 | GCP ADC / SA key | `~/.gmail-mcp-secrets/adc.json` (mounted `:ro` at `/secrets/adc.json`) |
 | PIN hash | `~/.gmail-mcp-secrets/.pincode` (mounted `:ro` at `/secrets/`, copied to `/app/` on start) |
 | Dashboard | `http://<host-ip>:5000` |

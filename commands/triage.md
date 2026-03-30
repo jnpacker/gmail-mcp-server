@@ -173,3 +173,17 @@ Right-align the email counts in parentheses so the arrow column lines up.
 - **Keep the dashboard concise** — one line per Jira ticket, one line description per group
 - **Groups should be meaningful** — merge tiny groups, split large ones. Aim for 3-8 groups.
 - **QUICK LINKS table is required** — must appear at the very end with every label, its count, and a clickable Gmail link using `in:inbox` (not `is:unread`)
+
+## Step 5: Output Structured Data
+
+After the dashboard, output this exact block (no extra whitespace before/after the fences):
+
+```json
+{"summary":{"total":N,"labeled":N,"archived":N,"deleted":N},"groups":[{"name":"Triage/GroupName","priority":"Critical|Important|Info","count":N,"description":"...","items":["subject — summary  ← sender"]}],"archived":["subject ← sender"],"deleted":["JIRA-ID — reason"]}
+```
+
+Rules:
+- Output valid JSON on a single line inside a ```json fence
+- `groups` must match exactly the labeled groups in the dashboard (same names, counts, priorities)
+- `archived` and `deleted` must list all auto-cleaned items from Step 3a
+- This block is parsed by the dashboard — do not omit it or wrap it in prose

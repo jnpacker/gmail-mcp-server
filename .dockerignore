@@ -1,0 +1,27 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Secrets — never bake into the image
+credentials.json
+token.json
+.env
+.pincode
+.flask_secret
+.claude/settings.local.json
+
+# Dev/host-only
+.git/
+*.md.bak
+logs/
+
+# Explicitly keep (listed here for documentation — not excluded)
+# .gemini/          ← Gemini CLI config + MCP server settings
+# .claude/          ← Claude Code config + commands
+# commands/         ← shared triage/emails command definitions
+# GEMINI.md         ← shared context file (CLAUDE.md symlinks here)

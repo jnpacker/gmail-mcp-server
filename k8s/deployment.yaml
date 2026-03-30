@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gmail-mcp-server
+  namespace: gmail-dashboard
+  labels:
+    app: gmail-mcp-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gmail-mcp-server
+  template:
+    metadata:
+      labels:
+        app: gmail-mcp-server
+    spec:
+      imagePullSecrets:
+        - name: zot-pull-secret
+      containers:
+        - name: gmail-mcp-server
+          image: zot.paxlab.cc/gmail-dashboard:0.5.1
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 5000
+          env:
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: gmail-mcp-secrets
+                  key: GEMINI_API_KEY
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: gmail-mcp-secrets
+                  key: ANTHROPIC_API_KEY
+                  optional: true
+            - name: FLASK_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: gmail-mcp-secrets
+                  key: FLASK_SECRET_KEY
+          volumeMounts:
+            - name: secrets-vol
+              mountPath: /app/credentials.json
+              subPath: credentials.json
+              readOnly: true
+            - name: secrets-vol
+              mountPath: /secrets/token.json
+              subPath: token.json
+              readOnly: true
+            - name: secrets-vol
+              mountPath: /secrets/.pincode
+              subPath: .pincode
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 5000
+            initialDelaySeconds: 15
+            periodSeconds: 300
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: secrets-vol
+          secret:
+            secretName: gmail-mcp-secrets
