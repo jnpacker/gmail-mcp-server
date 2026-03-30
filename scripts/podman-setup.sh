@@ -114,6 +114,30 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Step 3b: Gmail account email (for direct account linking in URLs)
+# ---------------------------------------------------------------------------
+step "3b. Gmail account email"
+
+_current_gmail_user=$(grep "^GMAIL_USER=" "$ENV_FILE" 2>/dev/null | cut -d= -f2-)
+if [[ -n "$_current_gmail_user" ]]; then
+    info "Current GMAIL_USER: $_current_gmail_user"
+    read -rp "  Gmail address (Enter to keep '$_current_gmail_user'): " gmail_user_input || gmail_user_input=""
+    gmail_user_input="${gmail_user_input:-$_current_gmail_user}"
+else
+    read -rp "  Gmail address (e.g. you@gmail.com, or Enter to skip): " gmail_user_input || gmail_user_input=""
+fi
+
+if [[ -n "$gmail_user_input" ]]; then
+    # Remove existing entry if present, then append updated value
+    sed -i '/^GMAIL_USER=/d' "$ENV_FILE" 2>/dev/null || true
+    echo "GMAIL_USER=${gmail_user_input}" >> "$ENV_FILE"
+    chmod 600 "$ENV_FILE"
+    success "GMAIL_USER set to '${gmail_user_input}'"
+else
+    warn "GMAIL_USER skipped — Gmail links will fall back to /u/0/"
+fi
+
+# ---------------------------------------------------------------------------
 # Step 4: credentials.json
 # ---------------------------------------------------------------------------
 step "4. Gmail API credentials (credentials.json)"
@@ -259,12 +283,15 @@ step "Setup summary"
 
 GEMINI_OK=false
 grep -q "GEMINI_API_KEY" "$ENV_FILE" 2>/dev/null && GEMINI_OK=true
+GMAIL_USER_OK=false
+grep -q "^GMAIL_USER=" "$ENV_FILE" 2>/dev/null && GMAIL_USER_OK=true
 
 _status() { [[ "$1" == "true" ]] && echo -e "${GREEN}ready${RESET}" || echo -e "${YELLOW}pending${RESET}"; }
 
 echo ""
 printf "  %-40s %s\n" "Component" "Status"
 printf "  %-40s %s\n" "---------" "------"
+printf "  %-40s %b\n" "Gmail account (GMAIL_USER)"      "$(_status $GMAIL_USER_OK)"
 printf "  %-40s %b\n" "Gemini CLI (GEMINI_API_KEY)"     "$(_status $GEMINI_OK)"
 printf "  %-40s %b\n" "Gmail credentials.json"          "$(_status $([[ -f $CREDS_FILE ]] && echo true || echo false))"
 printf "  %-40s %b\n" "Gmail token.json (OAuth)"        "$(_status $([[ -f $TOKEN_FILE  ]] && echo true || echo false))"

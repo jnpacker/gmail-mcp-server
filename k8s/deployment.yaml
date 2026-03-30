@@ -19,11 +19,17 @@ spec:
         - name: zot-pull-secret
       containers:
         - name: gmail-mcp-server
-          image: zot.paxlab.cc/gmail-dashboard:0.5.1
+          image: zot.paxlab.cc/gmail-dashboard:0.5.2
           imagePullPolicy: Always
           ports:
             - containerPort: 5000
           env:
+            - name: GMAIL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: gmail-mcp-secrets
+                  key: GMAIL_USER
+                  optional: true
             - name: GEMINI_API_KEY
               valueFrom:
                 secretKeyRef:

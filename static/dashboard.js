@@ -9,6 +9,8 @@
  *   5. Repeat from step 2
  */
 
+let gmailUser = '0'; // populated from /api/config (GMAIL_USER env var)
+
 let REFRESH_INTERVAL = (parseInt(localStorage.getItem('refreshInterval') || '5', 10)) * 60 * 1000;
 const POLL_INTERVAL = 5000;               // 5 seconds
 const EARLY_WAKE = 60 * 1000;             // wake 1 minute early
@@ -230,6 +232,12 @@ function startApp() {
             mobileEmailOverlay.classList.add('hidden');
         });
     }
+
+    // Load Gmail account config (GMAIL_USER for URL routing)
+    fetch('/api/config')
+        .then(r => r.json())
+        .then(cfg => { if (cfg.gmail_user) gmailUser = cfg.gmail_user; })
+        .catch(() => {});
 
     // Load quick links immediately from live Gmail labels, in parallel with triage
     updateQuickLinks();
@@ -648,7 +656,7 @@ function renderDeletedItems() {
         autoDeleted.forEach(item => {
             const jiraMatch = item.match(/^([A-Z]+-\d+)/);
             const searchTerm = jiraMatch ? jiraMatch[1] : item.split('—')[0].trim();
-            const gmailUrl = `https://mail.google.com/mail/u/0/#search/in:trash+${encodeURIComponent(searchTerm)}`;
+            const gmailUrl = `https://mail.google.com/mail/u/${gmailUser}/#search/in:trash+${encodeURIComponent(searchTerm)}`;
 
             const parts = item.split('—');
             const subject = parts[0].trim();
@@ -676,7 +684,7 @@ function renderDeletedItems() {
         deletedItemsEl.appendChild(header);
 
         manuallyDeleted.forEach(email => {
-            const gmailUrl = `https://mail.google.com/mail/u/0/#trash/${email.id}`;
+            const gmailUrl = `https://mail.google.com/mail/u/${gmailUser}/#trash/${email.id}`;
             const a = document.createElement('a');
             a.className = 'archived-email-item';
             a.href = gmailUrl;
@@ -720,7 +728,7 @@ function renderArchivedItems() {
             const subject = parts[0].trim();
             const sender = parts[1]?.trim() || '';
             const searchQuery = `in:all subject:"${subject}"`;
-            const gmailUrl = `https://mail.google.com/mail/u/0/#search/${encodeURIComponent(searchQuery)}`;
+            const gmailUrl = `https://mail.google.com/mail/u/${gmailUser}/#search/${encodeURIComponent(searchQuery)}`;
 
             const a = document.createElement('a');
             a.className = 'archived-email-item';
@@ -745,7 +753,7 @@ function renderArchivedItems() {
         container.appendChild(header);
 
         manuallyArchived.forEach(email => {
-            const gmailUrl = `https://mail.google.com/mail/u/0/#inbox/${email.id}`;
+            const gmailUrl = `https://mail.google.com/mail/u/${gmailUser}/#inbox/${email.id}`;
             const a = document.createElement('a');
             a.className = 'archived-email-item';
             a.href = gmailUrl;
@@ -1011,7 +1019,7 @@ async function showSummary(group) {
                             <div class="summary-item-meta">${escapeHtml(email.sender)}</div>
                         </div>
                         <div class="summary-item-actions">
-                            <a class="btn-gmail" href="https://mail.google.com/mail/u/0/#inbox/${email.id}" target="_blank" title="Open in Gmail"><img src="/static/gmail-logo.png" height="16" alt="Gmail"> <span class="btn-gmail-arrow">↗</span></a>
+                            <a class="btn-gmail" href="https://mail.google.com/mail/u/${gmailUser}/#inbox/${email.id}" target="_blank" title="Open in Gmail"><img src="/static/gmail-logo.png" height="16" alt="Gmail"> <span class="btn-gmail-arrow">↗</span></a>
                             <button class="btn-archive" title="Archive" data-id="${email.id}">Archive</button>
                             <button class="btn-delete" title="Delete" data-id="${email.id}">Delete</button>
                         </div>
@@ -1100,7 +1108,7 @@ async function showMobileEmailList(group, gmailUrl) {
                     <div class="mobile-row-sender">${escapeHtml(email.sender)}</div>
                 </div>
                 <div class="mobile-row-actions">
-                    <a class="btn-icon-action" href="${isMobile() ? `https://mail.google.com/mail/mu/mp/#cv/Inbox/${escapeHtml(email.threadId || email.id)}` : `https://mail.google.com/mail/u/0/#inbox/${escapeHtml(email.threadId || email.id)}`}" target="_blank" title="Open in Gmail"><img src="/static/gmail-m.png" height="16" alt="Gmail"></a>
+                    <a class="btn-icon-action" href="${isMobile() ? `https://mail.google.com/mail/mu/mp/#cv/Inbox/${escapeHtml(email.threadId || email.id)}` : `https://mail.google.com/mail/u/${gmailUser}/#inbox/${escapeHtml(email.threadId || email.id)}`}" target="_blank" title="Open in Gmail"><img src="/static/gmail-m.png" height="16" alt="Gmail"></a>
                     <button class="btn-icon-action btn-mobile-archive" title="Archive" data-id="${escapeHtml(email.id)}">${ICON_ARCHIVE}</button>
                     <button class="btn-icon-action btn-mobile-delete" title="Delete" data-id="${escapeHtml(email.id)}">${ICON_TRASH}</button>
                 </div>
@@ -1132,7 +1140,7 @@ async function showMobileEmailList(group, gmailUrl) {
 }
 
 function showEmailBody(email) {
-    const gmailUrl = `https://mail.google.com/mail/u/0/#inbox/${email.id}`;
+    const gmailUrl = `https://mail.google.com/mail/u/${gmailUser}/#inbox/${email.id}`;
     emailBodyContainer.innerHTML = `
         <div class="email-body-header">
             <div class="email-body-title-row">
@@ -1427,7 +1435,7 @@ function buildGmailSearchUrl(groupName) {
     if (isMobile()) {
         return `https://mail.google.com/mail/mu/mp/#tl/search/${encodeURIComponent(searchQuery)}`;
     }
-    return `https://mail.google.com/mail/u/0/#search/${encodeURIComponent(searchQuery)}`;
+    return `https://mail.google.com/mail/u/${gmailUser}/#search/${encodeURIComponent(searchQuery)}`;
 }
 
 // ─── Utilities ────────────────────────────────────────────────

@@ -768,6 +768,12 @@ def unarchive_email():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/config', methods=['GET'])
+@require_pin
+def get_config():
+    return jsonify({'gmail_user': os.environ.get('GMAIL_USER', '')})
+
+
 @app.route('/api/emails/undelete', methods=['POST'])
 @require_pin
 def undelete_email():
