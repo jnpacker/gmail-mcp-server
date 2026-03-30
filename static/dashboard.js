@@ -389,7 +389,8 @@ async function startRefreshCycle() {
                 console.log('[cycle] Triage skipped:', triageResult.reason);
                 hideSpinner();
                 // Advance lastTimestamp so the cycle sleeps a full interval before retrying
-                lastTimestamp = new Date().toISOString();
+                lastTimestamp = triageResult.timestamp || new Date().toISOString();
+                lastSyncEl.textContent = formatTime(lastTimestamp);
                 updateNextSync(REFRESH_INTERVAL);
             } else {
                 // Poll every 5s until fresh data arrives
@@ -499,6 +500,7 @@ async function handleManualRefresh() {
 
     if (triageResult?.skipped) {
         hideSpinner();
+        lastSyncEl.textContent = formatTime(triageResult.timestamp || new Date().toISOString());
         updateNextSync(REFRESH_INTERVAL);
         refreshBtn.textContent = '— No new emails';
     } else {

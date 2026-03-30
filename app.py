@@ -484,7 +484,11 @@ def refresh_triage():
 
         print(f"[AI triage] Unread: {unread_count}")
         if unread_count is not None and unread_count == 0:
-            return jsonify({'success': False, 'skipped': True, 'reason': 'No unread emails found'})
+            current_time = datetime.now(timezone.utc)
+            triage_cache['timestamp'] = current_time.isoformat()
+            triage_cache['next_sync'] = (current_time + timedelta(minutes=5)).isoformat()
+            return jsonify({'success': False, 'skipped': True, 'reason': 'No unread emails found',
+                            'timestamp': triage_cache['timestamp'], 'next_sync': triage_cache['next_sync']})
 
         try:
             data = run_triage()
