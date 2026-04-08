@@ -265,14 +265,32 @@ class GmailClient:
         add_ids = [self._resolve_label_name_to_id(n) for n in (add_labels or [])]
         remove_ids = [self._resolve_label_name_to_id(n) for n in (remove_labels or [])]
 
+        # If adding any Triage/* label, pre-fetch all Triage/* label IDs once
+        adding_triage = any(n.startswith('Triage/') for n in (add_labels or []))
+        triage_label_ids = set()
+        if adding_triage:
+            all_labels = self.list_labels()
+            triage_label_ids = {l['id'] for l in all_labels if l['name'].startswith('Triage/')}
+
         results = []
         for mid in message_ids:
             try:
+                final_remove_ids = set(remove_ids)
+
+                if adding_triage:
+                    # Fetch current labels on this message (metadata only, no body)
+                    msg = self.service.users().messages().get(
+                        userId='me', id=mid, format='minimal'
+                    ).execute()
+                    current = set(msg.get('labelIds', []))
+                    # Auto-remove any Triage/* labels not being added
+                    final_remove_ids |= (current & triage_label_ids) - set(add_ids)
+
                 body = {}
                 if add_ids:
                     body['addLabelIds'] = add_ids
-                if remove_ids:
-                    body['removeLabelIds'] = remove_ids
+                if final_remove_ids:
+                    body['removeLabelIds'] = list(final_remove_ids)
                 self.service.users().messages().modify(userId='me', id=mid, body=body).execute()
                 results.append({'success': True, 'message_id': mid, 'error': None})
             except HttpError as error:
