@@ -236,7 +236,7 @@ function startApp() {
     // Load Gmail account config (GMAIL_USER for URL routing)
     fetch('/api/config')
         .then(r => r.json())
-        .then(cfg => { if (cfg.gmail_user) gmailUser = cfg.gmail_user; })
+        .then(cfg => { if (cfg.gmail_user && /^\d+$/.test(cfg.gmail_user)) gmailUser = cfg.gmail_user; })
         .catch(() => {});
 
     // Load quick links immediately from live Gmail labels, in parallel with triage

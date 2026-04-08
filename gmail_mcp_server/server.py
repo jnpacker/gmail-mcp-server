@@ -166,7 +166,7 @@ class GmailMCPServer:
                 ),
                 Tool(
                     name="modify_labels",
-                    description="Batch add/remove labels on emails. Accepts positions[] and/or message_ids[], plus add_labels[] and/or remove_labels[] (label names).",
+                    description="Batch add/remove labels on emails. Accepts positions[] and/or message_ids[], plus add_labels[] and/or remove_labels[] (label names). When adding a Triage/* label, all other Triage/* labels on the email are automatically removed.",
                     inputSchema={
                         "type": "object",
                         "properties": {

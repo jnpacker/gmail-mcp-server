@@ -285,6 +285,32 @@ class TestModifyLabels:
         with pytest.raises(ValueError, match="Label not found"):
             self.client.modify_labels(['m1'], add_labels=['Nonexistent'])
 
+    def test_auto_removes_conflicting_triage_labels(self):
+        """Adding a Triage/* label should auto-remove other Triage/* labels already on the message."""
+        # Message currently has Triage/Jira (L1) applied
+        self.client.service.users().messages().get().execute.return_value = {
+            'labelIds': ['INBOX', 'UNREAD', 'L1']
+        }
+        self.client.service.users().messages().modify().execute.return_value = {}
+
+        results = self.client.modify_labels(['m1'], add_labels=['Triage/Security'])
+
+        assert results[0]['success'] is True
+        modify_call = self.client.service.users().messages().modify.call_args
+        body = modify_call.kwargs.get('body') or modify_call.args[0] if modify_call.args else modify_call.kwargs['body']
+        assert 'L2' in body['addLabelIds']   # Triage/Security added
+        assert 'L1' in body['removeLabelIds']  # Triage/Jira auto-removed
+
+    def test_no_auto_remove_for_non_triage_labels(self):
+        """Adding a non-Triage label should not trigger any auto-removal logic."""
+        self.client.service.users().messages().modify().execute.return_value = {}
+
+        results = self.client.modify_labels(['m1'], add_labels=['Triage/Jira'], remove_labels=['Triage/Security'])
+
+        assert results[0]['success'] is True
+        # messages().get() should have been called (Triage/* label being added)
+        self.client.service.users().messages().get.assert_called()
+
 
 # ---------------------------------------------------------------------------
 # mark_as_read
