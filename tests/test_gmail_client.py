@@ -2,7 +2,7 @@
 
 import base64
 import pytest
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 from gmail_mcp_server.gmail_client import GmailClient
 
