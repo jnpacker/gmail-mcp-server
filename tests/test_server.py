@@ -40,7 +40,7 @@ def _call_tool_sync(srv, name, arguments=None):
         params=mcp_types.CallToolRequestParams(name=name, arguments=arguments or {}),
     )
     handler = srv.server.request_handlers[mcp_types.CallToolRequest]
-    resp = asyncio.get_event_loop().run_until_complete(handler(req))
+    resp = asyncio.run(handler(req))
     # ServerResult wraps the actual result in .root
     return resp.root if hasattr(resp, 'root') else resp
 
@@ -49,7 +49,7 @@ def _list_tools_sync(srv):
     """List tools from the MCP server synchronously."""
     req = mcp_types.ListToolsRequest(method='tools/list')
     handler = srv.server.request_handlers[mcp_types.ListToolsRequest]
-    resp = asyncio.get_event_loop().run_until_complete(handler(req))
+    resp = asyncio.run(handler(req))
     return resp.root if hasattr(resp, 'root') else resp
 
 
