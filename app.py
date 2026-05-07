@@ -663,7 +663,7 @@ def get_triage_labels():
         with gmail_client_lock:
             gmail_client._ensure_authenticated()
             labels = gmail_client.list_labels()
-        triage_labels = sorted(l['name'] for l in labels if l['name'].startswith('Triage/'))
+        triage_labels = sorted(label['name'] for label in labels if label['name'].startswith('Triage/'))
         return jsonify({'labels': triage_labels})
     except Exception as e:
         return jsonify({'error': str(e)}), 500

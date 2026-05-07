@@ -1,7 +1,6 @@
 """Gmail API client wrapper for MCP server."""
 
 import os
-import json
 import base64
 import sys
 from pathlib import Path
@@ -199,7 +198,7 @@ class GmailClient:
         try:
             result = self.service.users().labels().list(userId='me').execute()
             labels = result.get('labels', [])
-            return [{'id': l['id'], 'name': l['name'], 'type': l.get('type', '')} for l in labels]
+            return [{'id': label['id'], 'name': label['name'], 'type': label.get('type', '')} for label in labels]
         except HttpError as error:
             raise Exception(f"An error occurred while listing labels: {error}")
 
@@ -270,7 +269,7 @@ class GmailClient:
         triage_label_ids = set()
         if adding_triage:
             all_labels = self.list_labels()
-            triage_label_ids = {l['id'] for l in all_labels if l['name'].startswith('Triage/')}
+            triage_label_ids = {label['id'] for label in all_labels if label['name'].startswith('Triage/')}
 
         results = []
         for mid in message_ids:

@@ -1,24 +1,20 @@
 """Gmail MCP Server - Main server implementation."""
 
 import asyncio
-import json
-import os
 import re
 from collections import OrderedDict
 from datetime import datetime
-from typing import Any, Sequence
+from typing import Any
 from mcp.server import Server
 from mcp.server.models import InitializationOptions
 from mcp.server import NotificationOptions
 from mcp.server.stdio import stdio_server
 from mcp.types import (
-    Resource,
     Tool,
     TextContent,
     ImageContent,
     EmbeddedResource
 )
-from pydantic import AnyUrl
 from .gmail_client import GmailClient
 
 # Standard Gmail labels to hide from display
@@ -273,7 +269,7 @@ class GmailMCPServer:
 
                 elif name == "list_labels":
                     labels = self.gmail_client.list_labels()
-                    lines = [f"{l['name']} (id: {l['id']}, type: {l['type']})" for l in labels]
+                    lines = [f"{label['name']} (id: {label['id']}, type: {label['type']})" for label in labels]
                     return [TextContent(type="text", text="\n".join(lines))]
 
                 elif name == "create_label":
@@ -365,7 +361,7 @@ class GmailMCPServer:
 
         # Resolve label IDs to names (fetch once)
         try:
-            all_labels = {l['id']: l['name'] for l in self.gmail_client.list_labels()}
+            all_labels = {label['id']: label['name'] for label in self.gmail_client.list_labels()}
         except Exception:
             all_labels = {}
 
@@ -435,7 +431,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="Gmail MCP Server")
-    args = parser.parse_args()
+    parser.parse_args()
 
     server = GmailMCPServer()
     asyncio.run(server.run())
