@@ -16,7 +16,7 @@ def main():
 
     try:
         os.environ['GMAIL_INTERACTIVE_AUTH'] = '1'
-        client = GmailClient(auto_authenticate=True)
+        GmailClient(auto_authenticate=True)
         print()
         print("✓ Authentication successful!")
         print("✓ Token saved to token.json")
