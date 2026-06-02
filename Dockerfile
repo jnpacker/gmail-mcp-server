@@ -10,8 +10,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Claude Code CLI + Gemini CLI
-RUN npm install -g @anthropic-ai/claude-code @google/gemini-cli
+# Gemini CLI
+RUN npm install -g @google/gemini-cli
 
 # Gemini CLI writes its project registry and settings here at runtime
 RUN mkdir -p /root/.gemini

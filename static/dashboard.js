@@ -43,7 +43,7 @@ const emailBodyContainer = document.getElementById('emailBodyContainer');
 const unreadOnlyToggle = document.getElementById('unreadOnlyToggle');
 const splitBtnArrow = document.getElementById('splitBtnArrow');
 const refreshDropdown = document.getElementById('refreshDropdown');
-const modelSelectEl = document.getElementById('modelSelect');
+const modelDisplayEl = document.getElementById('modelDisplay');
 
 const undoToastContainer = document.getElementById('undoToastContainer');
 
@@ -197,35 +197,10 @@ function startApp() {
         updateQuickLinks();
     });
 
-    // Restore saved model from localStorage, sync to backend
-    const savedModel = localStorage.getItem('triageModel');
-    if (savedModel && modelSelectEl) {
-        modelSelectEl.value = savedModel;
-        fetch('/api/model', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ model: savedModel })
-        }).catch(() => {});
-    } else {
-        fetch('/api/model')
-            .then(r => r.json())
-            .then(data => { if (data.model && modelSelectEl) modelSelectEl.value = data.model; })
-            .catch(() => {});
-    }
-
-    modelSelectEl.addEventListener('change', async () => {
-        const model = modelSelectEl.value;
-        localStorage.setItem('triageModel', model);
-        try {
-            await fetch('/api/model', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ model })
-            });
-        } catch (e) {
-            console.error('Failed to set model:', e);
-        }
-    });
+    fetch('/api/model')
+        .then(r => r.json())
+        .then(data => { if (data.model && modelDisplayEl) modelDisplayEl.textContent = data.model; })
+        .catch(() => {});
 
     if (mobileOverlayBack) {
         mobileOverlayBack.addEventListener('click', () => {
@@ -586,8 +561,8 @@ function updateSyncTimes(result) {
         const next = new Date(new Date(result.timestamp).getTime() + REFRESH_INTERVAL);
         nextSyncEl.textContent = formatTimestamp(next.toISOString());
     }
-    if (result.model && modelSelectEl) {
-        modelSelectEl.value = result.model;
+    if (result.model && modelDisplayEl) {
+        modelDisplayEl.textContent = result.model;
     }
 }
 
