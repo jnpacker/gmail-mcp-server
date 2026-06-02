@@ -69,8 +69,8 @@ def require_pin(f):
 # ── Triage cache ───────────────────────────────────────────────
 
 # Store triage results in memory with timestamp
-TRIAGE_MODEL = 'gemini-2.5-flash'
-triage_model = TRIAGE_MODEL  # mutable runtime selection
+TRIAGE_MODEL = 'gemini-3.5-flash'
+triage_model = TRIAGE_MODEL
 
 # Keywords that indicate an authentication/authorization failure
 _AUTH_KEYWORDS = ['auth', 'token', 'credential', 'unauthorized', 'unauthenticated',
@@ -150,8 +150,7 @@ def run_triage():
     """
     global triage_process_info
     try:
-        cli_cmd = 'gemini' if triage_model.startswith('gemini') else 'claude'
-        cmd = [cli_cmd, '-p', '/triage', '--model', triage_model]
+        cmd = ['gemini', '-p', '/triage', '--model', triage_model]
         cwd = os.path.dirname(os.path.abspath(__file__))
 
         proc = subprocess.Popen(
@@ -669,31 +668,10 @@ def get_triage_labels():
         return jsonify({'error': str(e)}), 500
 
 
-ALLOWED_MODELS = {
-    'claude-haiku-4-5',
-    'claude-sonnet-4-6',
-    'claude-opus-4-6',
-    'gemini-2.5-flash',
-    'gemini-2.5-pro',
-}
-
 @app.route('/api/model', methods=['GET'])
 @require_pin
 def get_model():
     return jsonify({'model': triage_model})
-
-@app.route('/api/model', methods=['POST'])
-@require_pin
-def set_model():
-    global triage_model
-    data = request.get_json()
-    model = data.get('model') if data else None
-    if not model or model not in ALLOWED_MODELS:
-        return jsonify({'error': f'Invalid model. Allowed: {sorted(ALLOWED_MODELS)}'}), 400
-    previous_model = triage_model
-    triage_model = model
-    print(f"[model] Switched to {triage_model}")
-    return jsonify({'previous_model': previous_model, 'model': triage_model})
 
 
 @app.route('/api/emails/readstate', methods=['POST'])

@@ -35,12 +35,6 @@ fi
 
 # credentials.json is mounted directly at /app/credentials.json (read-only is fine)
 
-# Claude Code commands
-mkdir -p /app/.claude/commands
-for cmd in triage emails; do
-    ln -sf ../../commands/${cmd}.md /app/.claude/commands/${cmd}.md
-done
-
 # All Gemini CLI config lives in /root/.gemini (global user dir — where Gemini always looks)
 # Generate Gemini .toml commands from Claude .md sources (single source of truth)
 mkdir -p /root/.gemini/commands
