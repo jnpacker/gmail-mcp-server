@@ -47,7 +47,6 @@ token.json
 Thumbs.db
 CLAUDE.md
 gemini.md
-GEMINI.md
 ./claude
 !./claude/commands/
 ./gemini
