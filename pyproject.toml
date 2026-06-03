@@ -26,3 +26,40 @@ gmail-mcp-auth = "gmail_mcp_server.auth:main"
 
 [tool.setuptools.packages.find]
 include = ["gmail_mcp_server*"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "pytest-asyncio>=0.23",
+    "pytest-mock>=3.14",
+    "ruff>=0.4",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]
+ignore = [
+    "E501",
+    "UP006",
+    "UP007",
+    "UP035",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["gmail_mcp_server"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["gmail_mcp_server", "app"]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true

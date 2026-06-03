@@ -219,45 +219,53 @@ make watch MODEL=opus
 ## Available Tools
 
 #### 1. list_unread_emails
-Lists unread emails in Gmail inbox with optional filtering.
+Lists unread emails in Gmail inbox with optional filtering. Rebuilds the in-memory position map used by delete/archive/modify tools.
 
 **Parameters:**
-- `subject_filter` (optional): Filter emails containing specific text in subject
+- `subject_filter` (optional): Filter emails by subject text
 - `max_results` (optional): Maximum number of emails to return (default: 50)
 
-**Example:**
-```json
-{
-  "subject_filter": "important",
-  "max_results": 10
-}
-```
-
-#### 2. delete_email
-Permanently deletes an email by ID.
+#### 2. delete_emails
+Moves emails to trash and marks them as read. Accepts position numbers from the last `list_unread_emails` call and/or explicit Gmail message IDs.
 
 **Parameters:**
-- `message_id` (required): Gmail message ID to delete
+- `positions` (optional): Array of 1-based position numbers from the email list
+- `message_ids` (optional): Array of Gmail message IDs
 
-**Example:**
-```json
-{
-  "message_id": "123456789abcdef"
-}
-```
-
-#### 3. archive_email
-Archives an email (removes from inbox) by ID.
+#### 3. archive_emails
+Archives emails (removes from inbox) and marks them as read.
 
 **Parameters:**
-- `message_id` (required): Gmail message ID to archive
+- `positions` (optional): Array of 1-based position numbers
+- `message_ids` (optional): Array of Gmail message IDs
 
-**Example:**
-```json
-{
-  "message_id": "123456789abcdef"
-}
-```
+#### 4. list_labels
+Returns all Gmail labels (system + user-defined).
+
+**Parameters:** None
+
+#### 5. create_label
+Creates a new Gmail label with optional color.
+
+**Parameters:**
+- `name` (required): Label name (e.g., `Triage/Security`)
+- `background_color` (optional): Hex color (e.g., `#4a86e8`) — must be a predefined Gmail color
+- `text_color` (optional): Hex text color — must be paired with `background_color`
+
+#### 6. modify_labels
+Adds and/or removes labels on emails. When adding a `Triage/*` label, all other `Triage/*` labels on the email are automatically removed (one-label-per-email invariant).
+
+**Parameters:**
+- `positions` (optional): Array of 1-based position numbers
+- `message_ids` (optional): Array of Gmail message IDs
+- `add_labels` (optional): Array of label names to add
+- `remove_labels` (optional): Array of label names to remove
+
+#### 7. list_recent_actions
+Returns the in-memory log of recent email operations (capped at 100).
+
+**Parameters:**
+- `limit` (optional): Maximum number of actions to return (default: 10)
 
 ## Authentication
 
@@ -310,12 +318,31 @@ Before running `make auth`, you need to set up Google OAuth 2.0 credentials:
 
 ## Development
 
-Install in development mode:
+Install with dev dependencies:
 ```bash
-pip install -e .
+pip install -e ".[dev]"
 ```
 
-Run the server:
+Run tests:
 ```bash
-gmail-mcp-server
+make test          # run all tests
+make test-cov      # run with coverage report
+```
+
+Lint and format:
+```bash
+make lint          # check with ruff
+make format        # auto-format and fix imports with ruff
+```
+
+Run the MCP server directly:
+```bash
+python -m gmail_mcp_server        # short form (via __main__.py)
+python -m gmail_mcp_server.server # explicit
+gmail-mcp-server                  # installed entry point
+```
+
+Test the server interactively with the MCP Inspector:
+```bash
+npx @modelcontextprotocol/inspector python3 -m gmail_mcp_server.server
 ```

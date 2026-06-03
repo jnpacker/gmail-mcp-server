@@ -2,6 +2,7 @@
 
 import os
 import sys
+
 from .gmail_client import GmailClient
 
 
@@ -15,7 +16,7 @@ def main():
     print()
 
     try:
-        os.environ['GMAIL_INTERACTIVE_AUTH'] = '1'
+        os.environ["GMAIL_INTERACTIVE_AUTH"] = "1"
         GmailClient(auto_authenticate=True)
         print()
         print("✓ Authentication successful!")
