@@ -115,30 +115,59 @@ The backend parses triage output and returns JSON with:
 
 ## API Endpoints
 
-### GET /api/triage
-Returns current triage data and sync timestamps.
+All endpoints except the PIN/auth group require a valid session (set by `POST /api/pin/verify`). Unauthenticated requests return `401 {"error": "pin_required"}` when a PIN is configured.
+
+### PIN Authentication
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/pin/status` | Returns `{"configured": bool, "authenticated": bool}` |
+| `POST` | `/api/pin/verify` | Body: `{"pin": "1234"}` → `{"ok": true}` or 401 |
+| `GET` | `/logout` | Clears session, redirects to `/` |
+
+### Triage
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/triage` | Returns cached triage data + timestamps |
+| `POST` | `/api/triage/refresh` | Manually triggers a new triage run. Returns 409 if already running. |
+| `GET` | `/api/triage/running` | Returns `{"running": bool, "pid": int, "elapsed_seconds": float, "timeout_seconds": int}` |
+
+#### GET /api/triage response shape
 
 ```json
 {
   "data": {
-    "summary": {...},
-    "auto_cleaned": {...},
-    "labeled_groups": [...]
+    "summary": {"total": 10, "labeled": 7, "archived": 2, "deleted": 1},
+    "auto_cleaned": {"archived": ["Meeting invite"], "deleted": ["Status change"]},
+    "labeled_groups": [{"name": "Triage/Jira", "priority": "Important", "count": 3, "items": [...], "description": "..."}]
   },
   "timestamp": "2026-03-06T10:30:00",
-  "next_sync": "2026-03-06T10:45:00"
+  "next_sync": "2026-03-06T10:45:00",
+  "model": "gemini-3.5-flash",
+  "error": null
 }
 ```
 
-### POST /api/triage/refresh
-Manually trigger triage refresh. Returns updated data.
+### Email Operations
 
-```json
-{
-  "success": true,
-  "data": {...}
-}
-```
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/emails` | Query: `?label=Triage/Foo` — returns emails matching label |
+| `GET` | `/api/emails/counts` | Query: `?label=Triage/Foo&label=Triage/Bar` — batch unread/total counts |
+| `POST` | `/api/emails/readstate` | Body: `{"message_id": "...", "unread": true}` — mark read or unread |
+| `POST` | `/api/emails/archive` | Body: `{"message_id": "..."}` — archive email |
+| `POST` | `/api/emails/delete` | Body: `{"message_id": "..."}` — move to trash |
+| `POST` | `/api/emails/unarchive` | Body: `{"message_id": "..."}` — move archived back to inbox |
+| `POST` | `/api/emails/undelete` | Body: `{"message_id": "..."}` — move trashed back to inbox |
+
+### Labels & Config
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/labels/triage` | Returns all `Triage/*` label names |
+| `GET` | `/api/model` | Returns current triage model name |
+| `GET` | `/api/config` | Returns `{"gmail_user": "..."}` |
 
 ## Configuration
 

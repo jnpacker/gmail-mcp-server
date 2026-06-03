@@ -1,10 +1,11 @@
 """Gmail API client wrapper for MCP server."""
 
-import os
 import base64
+import os
 import sys
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List
+
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -15,12 +16,14 @@ from googleapiclient.errors import HttpError
 class GmailClient:
     """Gmail API client for managing emails."""
 
-    SCOPES = [
-        'https://www.googleapis.com/auth/gmail.readonly',
-        'https://www.googleapis.com/auth/gmail.modify'
-    ]
+    SCOPES = ["https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.modify"]
 
-    def __init__(self, credentials_path: str = "credentials.json", token_path: str = "token.json", auto_authenticate: bool = False):
+    def __init__(
+        self,
+        credentials_path: str = "credentials.json",
+        token_path: str = "token.json",
+        auto_authenticate: bool = False,
+    ):
         """Initialize Gmail client with authentication."""
         # Get the directory where this code file resides
         code_dir = Path(__file__).parent.parent
@@ -56,7 +59,7 @@ class GmailClient:
             if creds and creds.expired and creds.refresh_token:
                 try:
                     creds.refresh(Request())
-                    with open(self.token_path, 'w') as token:
+                    with open(self.token_path, "w") as token:
                         token.write(creds.to_json())
                 except Exception as e:
                     raise Exception(f"Failed to refresh token: {e}")
@@ -67,13 +70,11 @@ class GmailClient:
                         "Please download your OAuth 2.0 credentials from Google Cloud Console."
                     )
 
-                if os.environ.get('GMAIL_INTERACTIVE_AUTH') == '1':
+                if os.environ.get("GMAIL_INTERACTIVE_AUTH") == "1":
                     try:
-                        flow = InstalledAppFlow.from_client_secrets_file(
-                            self.credentials_path, self.SCOPES
-                        )
+                        flow = InstalledAppFlow.from_client_secrets_file(self.credentials_path, self.SCOPES)
                         creds = flow.run_local_server(port=0)
-                        with open(self.token_path, 'w') as token:
+                        with open(self.token_path, "w") as token:
                             token.write(creds.to_json())
                     except Exception as e:
                         raise Exception(f"Interactive authentication failed: {e}")
@@ -84,12 +85,12 @@ class GmailClient:
                     raise Exception(
                         f"Authentication required but no valid token found. "
                         f"Please run initial authentication manually:\n"
-                        f"{python_cmd} -c \"from gmail_mcp_server.gmail_client import GmailClient; "
+                        f'{python_cmd} -c "from gmail_mcp_server.gmail_client import GmailClient; '
                         f"import os; os.environ['GMAIL_INTERACTIVE_AUTH'] = '1'; GmailClient(auto_authenticate=True)\"\n"
                         f"This will create the required token.json file for headless operation."
                     )
 
-        self.service = build('gmail', 'v1', credentials=creds)
+        self.service = build("gmail", "v1", credentials=creds)
         self._authenticated = True
 
     def _ensure_authenticated(self):
@@ -97,7 +98,7 @@ class GmailClient:
         if not self._authenticated:
             self._authenticate()
 
-    def list_unread_emails(self, subject_filter: Optional[str] = None, max_results: int = 50) -> List[Dict[str, Any]]:
+    def list_unread_emails(self, subject_filter: str | None = None, max_results: int = 50) -> List[Dict[str, Any]]:
         """
         List unread emails in inbox, optionally filtered by subject.
 
@@ -114,17 +115,13 @@ class GmailClient:
             if subject_filter:
                 query += f' subject:"{subject_filter}"'
 
-            result = self.service.users().messages().list(
-                userId='me',
-                q=query,
-                maxResults=max_results
-            ).execute()
+            result = self.service.users().messages().list(userId="me", q=query, maxResults=max_results).execute()
 
-            messages = result.get('messages', [])
+            messages = result.get("messages", [])
             emails = []
 
             for message in messages:
-                email_data = self._get_email_details(message['id'])
+                email_data = self._get_email_details(message["id"])
                 if email_data:
                     emails.append(email_data)
 
@@ -133,32 +130,28 @@ class GmailClient:
         except HttpError as error:
             raise Exception(f"An error occurred while listing emails: {error}")
 
-    def _get_email_details(self, message_id: str) -> Optional[Dict[str, Any]]:
+    def _get_email_details(self, message_id: str) -> Dict[str, Any] | None:
         """Get detailed information about a specific email."""
         self._ensure_authenticated()
         try:
-            message = self.service.users().messages().get(
-                userId='me',
-                id=message_id,
-                format='full'
-            ).execute()
+            message = self.service.users().messages().get(userId="me", id=message_id, format="full").execute()
 
-            headers = message['payload'].get('headers', [])
-            subject = next((h['value'] for h in headers if h['name'] == 'Subject'), 'No Subject')
-            sender = next((h['value'] for h in headers if h['name'] == 'From'), 'Unknown Sender')
-            date = next((h['value'] for h in headers if h['name'] == 'Date'), 'Unknown Date')
+            headers = message["payload"].get("headers", [])
+            subject = next((h["value"] for h in headers if h["name"] == "Subject"), "No Subject")
+            sender = next((h["value"] for h in headers if h["name"] == "From"), "Unknown Sender")
+            date = next((h["value"] for h in headers if h["name"] == "Date"), "Unknown Date")
 
-            body = self._extract_email_body(message['payload'])
+            body = self._extract_email_body(message["payload"])
 
             return {
-                'id': message_id,
-                'threadId': message.get('threadId', ''),
-                'labelIds': message.get('labelIds', []),
-                'subject': subject,
-                'sender': sender,
-                'date': date,
-                'body': body,
-                'snippet': message.get('snippet', '')
+                "id": message_id,
+                "threadId": message.get("threadId", ""),
+                "labelIds": message.get("labelIds", []),
+                "subject": subject,
+                "sender": sender,
+                "date": date,
+                "body": body,
+                "snippet": message.get("snippet", ""),
             }
 
         except HttpError as error:
@@ -169,22 +162,22 @@ class GmailClient:
         """Extract email body from message payload."""
         body = ""
 
-        if 'parts' in payload:
-            for part in payload['parts']:
-                if part['mimeType'] == 'text/plain':
-                    data = part['body'].get('data', '')
+        if "parts" in payload:
+            for part in payload["parts"]:
+                if part["mimeType"] == "text/plain":
+                    data = part["body"].get("data", "")
                     if data:
-                        body = base64.urlsafe_b64decode(data).decode('utf-8')
+                        body = base64.urlsafe_b64decode(data).decode("utf-8")
                         break
-                elif part['mimeType'] == 'text/html' and not body:
-                    data = part['body'].get('data', '')
+                elif part["mimeType"] == "text/html" and not body:
+                    data = part["body"].get("data", "")
                     if data:
-                        body = base64.urlsafe_b64decode(data).decode('utf-8')
+                        body = base64.urlsafe_b64decode(data).decode("utf-8")
         else:
-            if payload['mimeType'] == 'text/plain':
-                data = payload['body'].get('data', '')
+            if payload["mimeType"] == "text/plain":
+                data = payload["body"].get("data", "")
                 if data:
-                    body = base64.urlsafe_b64decode(data).decode('utf-8')
+                    body = base64.urlsafe_b64decode(data).decode("utf-8")
 
         return body or "No readable content"
 
@@ -196,9 +189,9 @@ class GmailClient:
         """
         self._ensure_authenticated()
         try:
-            result = self.service.users().labels().list(userId='me').execute()
-            labels = result.get('labels', [])
-            return [{'id': label['id'], 'name': label['name'], 'type': label.get('type', '')} for label in labels]
+            result = self.service.users().labels().list(userId="me").execute()
+            labels = result.get("labels", [])
+            return [{"id": label["id"], "name": label["name"], "type": label.get("type", "")} for label in labels]
         except HttpError as error:
             raise Exception(f"An error occurred while listing labels: {error}")
 
@@ -215,18 +208,11 @@ class GmailClient:
         """
         self._ensure_authenticated()
         try:
-            label_body = {
-                'name': name,
-                'labelListVisibility': 'labelShow',
-                'messageListVisibility': 'show'
-            }
+            label_body = {"name": name, "labelListVisibility": "labelShow", "messageListVisibility": "show"}
             if background_color and text_color:
-                label_body['color'] = {
-                    'backgroundColor': background_color,
-                    'textColor': text_color
-                }
-            result = self.service.users().labels().create(userId='me', body=label_body).execute()
-            return {'id': result['id'], 'name': result['name']}
+                label_body["color"] = {"backgroundColor": background_color, "textColor": text_color}
+            result = self.service.users().labels().create(userId="me", body=label_body).execute()
+            return {"id": result["id"], "name": result["name"]}
         except HttpError as error:
             raise Exception(f"An error occurred while creating label: {error}")
 
@@ -245,11 +231,13 @@ class GmailClient:
         labels = self.list_labels()
         name_lower = name.lower()
         for label in labels:
-            if label['name'].lower() == name_lower:
-                return label['id']
+            if label["name"].lower() == name_lower:
+                return label["id"]
         raise ValueError(f"Label not found: {name}")
 
-    def modify_labels(self, message_ids: List[str], add_labels: List[str] = None, remove_labels: List[str] = None) -> List[Dict[str, Any]]:
+    def modify_labels(
+        self, message_ids: List[str], add_labels: List[str] = None, remove_labels: List[str] = None
+    ) -> List[Dict[str, Any]]:
         """Batch add/remove labels on messages.
 
         Args:
@@ -265,11 +253,11 @@ class GmailClient:
         remove_ids = [self._resolve_label_name_to_id(n) for n in (remove_labels or [])]
 
         # If adding any Triage/* label, pre-fetch all Triage/* label IDs once
-        adding_triage = any(n.startswith('Triage/') for n in (add_labels or []))
+        adding_triage = any(n.startswith("Triage/") for n in (add_labels or []))
         triage_label_ids = set()
         if adding_triage:
             all_labels = self.list_labels()
-            triage_label_ids = {label['id'] for label in all_labels if label['name'].startswith('Triage/')}
+            triage_label_ids = {label["id"] for label in all_labels if label["name"].startswith("Triage/")}
 
         results = []
         for mid in message_ids:
@@ -278,22 +266,20 @@ class GmailClient:
 
                 if adding_triage:
                     # Fetch current labels on this message (metadata only, no body)
-                    msg = self.service.users().messages().get(
-                        userId='me', id=mid, format='minimal'
-                    ).execute()
-                    current = set(msg.get('labelIds', []))
+                    msg = self.service.users().messages().get(userId="me", id=mid, format="minimal").execute()
+                    current = set(msg.get("labelIds", []))
                     # Auto-remove any Triage/* labels not being added
                     final_remove_ids |= (current & triage_label_ids) - set(add_ids)
 
                 body = {}
                 if add_ids:
-                    body['addLabelIds'] = add_ids
+                    body["addLabelIds"] = add_ids
                 if final_remove_ids:
-                    body['removeLabelIds'] = list(final_remove_ids)
-                self.service.users().messages().modify(userId='me', id=mid, body=body).execute()
-                results.append({'success': True, 'message_id': mid, 'error': None})
+                    body["removeLabelIds"] = list(final_remove_ids)
+                self.service.users().messages().modify(userId="me", id=mid, body=body).execute()
+                results.append({"success": True, "message_id": mid, "error": None})
             except HttpError as error:
-                results.append({'success': False, 'message_id': mid, 'error': str(error)})
+                results.append({"success": False, "message_id": mid, "error": str(error)})
         return results
 
     def mark_as_unread(self, message_ids: List[str]) -> List[Dict[str, Any]]:
@@ -309,13 +295,10 @@ class GmailClient:
         results = []
         for mid in message_ids:
             try:
-                self.service.users().messages().modify(
-                    userId='me', id=mid,
-                    body={'addLabelIds': ['UNREAD']}
-                ).execute()
-                results.append({'success': True, 'message_id': mid, 'error': None})
+                self.service.users().messages().modify(userId="me", id=mid, body={"addLabelIds": ["UNREAD"]}).execute()
+                results.append({"success": True, "message_id": mid, "error": None})
             except HttpError as error:
-                results.append({'success': False, 'message_id': mid, 'error': str(error)})
+                results.append({"success": False, "message_id": mid, "error": str(error)})
         return results
 
     def mark_as_read(self, message_ids: List[str]) -> List[Dict[str, Any]]:
@@ -332,12 +315,11 @@ class GmailClient:
         for mid in message_ids:
             try:
                 self.service.users().messages().modify(
-                    userId='me', id=mid,
-                    body={'removeLabelIds': ['UNREAD']}
+                    userId="me", id=mid, body={"removeLabelIds": ["UNREAD"]}
                 ).execute()
-                results.append({'success': True, 'message_id': mid, 'error': None})
+                results.append({"success": True, "message_id": mid, "error": None})
             except HttpError as error:
-                results.append({'success': False, 'message_id': mid, 'error': str(error)})
+                results.append({"success": False, "message_id": mid, "error": str(error)})
         return results
 
     def delete_emails(self, message_ids: List[str]) -> List[Dict[str, Any]]:
@@ -354,24 +336,20 @@ class GmailClient:
         for mid in message_ids:
             try:
                 email_details = self._get_email_details(mid)
-                subject = email_details.get('subject', 'No Subject') if email_details else 'Unknown Subject'
+                subject = email_details.get("subject", "No Subject") if email_details else "Unknown Subject"
                 if len(subject) > 60:
                     subject = subject[:57] + "..."
 
                 self.service.users().messages().modify(
-                    userId='me', id=mid,
-                    body={
-                        'addLabelIds': ['TRASH'],
-                        'removeLabelIds': ['UNREAD']
-                    }
+                    userId="me", id=mid, body={"addLabelIds": ["TRASH"], "removeLabelIds": ["UNREAD"]}
                 ).execute()
-                results.append({'success': True, 'subject': subject, 'message_id': mid, 'error': None})
+                results.append({"success": True, "subject": subject, "message_id": mid, "error": None})
             except HttpError as error:
                 error_details = f"HTTP {error.resp.status}: {error.error_details if hasattr(error, 'error_details') else str(error)}"
-                results.append({'success': False, 'subject': None, 'message_id': mid, 'error': error_details})
+                results.append({"success": False, "subject": None, "message_id": mid, "error": error_details})
             except Exception as error:
                 error_details = f"Unexpected error: {str(error)} ({type(error).__name__})"
-                results.append({'success': False, 'subject': None, 'message_id': mid, 'error': error_details})
+                results.append({"success": False, "subject": None, "message_id": mid, "error": error_details})
         return results
 
     def archive_emails(self, message_ids: List[str]) -> List[Dict[str, Any]]:
@@ -388,21 +366,20 @@ class GmailClient:
         for mid in message_ids:
             try:
                 email_details = self._get_email_details(mid)
-                subject = email_details.get('subject', 'No Subject') if email_details else 'Unknown Subject'
+                subject = email_details.get("subject", "No Subject") if email_details else "Unknown Subject"
                 if len(subject) > 60:
                     subject = subject[:57] + "..."
 
                 self.service.users().messages().modify(
-                    userId='me', id=mid,
-                    body={'removeLabelIds': ['INBOX', 'UNREAD']}
+                    userId="me", id=mid, body={"removeLabelIds": ["INBOX", "UNREAD"]}
                 ).execute()
-                results.append({'success': True, 'subject': subject, 'message_id': mid, 'error': None})
+                results.append({"success": True, "subject": subject, "message_id": mid, "error": None})
             except HttpError as error:
                 error_details = f"HTTP {error.resp.status}: {error.error_details if hasattr(error, 'error_details') else str(error)}"
-                results.append({'success': False, 'subject': None, 'message_id': mid, 'error': error_details})
+                results.append({"success": False, "subject": None, "message_id": mid, "error": error_details})
             except Exception as error:
                 error_details = f"Unexpected error: {str(error)} ({type(error).__name__})"
-                results.append({'success': False, 'subject': None, 'message_id': mid, 'error': error_details})
+                results.append({"success": False, "subject": None, "message_id": mid, "error": error_details})
         return results
 
     def delete_email(self, message_id: str) -> dict:

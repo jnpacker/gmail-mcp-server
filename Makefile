@@ -1,4 +1,4 @@
-.PHONY: help auth triage watch dashboard kill-dashboard set-pin podman-setup podman-build podman-push link-commands
+.PHONY: help auth triage watch dashboard kill-dashboard set-pin podman-setup podman-build podman-push link-commands lint format test test-cov
 
 .DEFAULT_GOAL := help
 
@@ -66,6 +66,19 @@ podman-push: ## Push image to registry (IMAGE_REPO=...; uses saved tag)
 
 podman-setup: ## Run full Podman container setup
 	@bash scripts/podman-setup.sh
+
+lint: ## Run ruff linter
+	ruff check .
+
+format: ## Auto-format and fix code with ruff
+	ruff format .
+	ruff check --fix .
+
+test: ## Run tests with pytest
+	python3 -m pytest tests/ -v
+
+test-cov: ## Run tests with coverage report
+	python3 -m pytest tests/ --cov=gmail_mcp_server --cov=app --cov-report=term-missing
 
 set-pin: ## Set or change the dashboard PIN (prompts for PIN twice)
 	@python3 -c "\
