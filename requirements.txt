@@ -5,3 +5,5 @@ google-auth-httplib2>=0.4.0
 google-api-python-client>=2.196.0
 flask>=3.1.3
 starlette>=1.1.0
+# Transitive dependency of google-auth; pinned to fix CVE-2026-69247 (GHSA-g6cj-pr64-35w5)
+cryptography>=50.0.0
