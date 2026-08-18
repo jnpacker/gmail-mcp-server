@@ -10,21 +10,26 @@ IMAGE_TAG  ?= $(if $(_SAVED_TAG),$(_SAVED_TAG),0.1)
 VENV_DIR    := .venv
 VENV_PYTHON := $(VENV_DIR)/bin/python3
 VENV_RUFF   := $(VENV_DIR)/bin/ruff
+VENV_STAMP  := $(VENV_DIR)/.installed
 
 help: ## List available commands
 	@echo "Available commands:"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  make %-15s %s\n", $$1, $$2}'
 
-$(VENV_PYTHON):
+# Depends on pyproject.toml so editing project deps (or dev deps) invalidates
+# the stamp and triggers a reinstall — a plain existence check on $(VENV_PYTHON)
+# would otherwise leave a stale environment after dependency changes.
+$(VENV_STAMP): pyproject.toml
 	@echo "Setting up local virtualenv in $(VENV_DIR)..."
 	python3 -m venv $(VENV_DIR)
 	$(VENV_PYTHON) -m pip install --upgrade pip
 	$(VENV_PYTHON) -m pip install -e ".[dev]"
+	@touch $(VENV_STAMP)
 	@echo "Virtualenv ready. ($(VENV_PYTHON))"
 
 # Not listed in `make help` — this is bootstrapped automatically as a dependency
 # of auth/test/lint/format/dashboard, not something you're expected to run directly.
-venv: $(VENV_PYTHON)
+venv: $(VENV_STAMP)
 
 auth: venv ## Initialize Gmail OAuth authentication (requires credentials.json)
 	@if [ ! -f credentials.json ]; then \

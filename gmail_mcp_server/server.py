@@ -277,9 +277,6 @@ class GmailMCPServer:
                         else:
                             raise
 
-                    if not emails:
-                        return [TextContent(type="text", text="No unread emails found matching the criteria.")]
-
                     formatted_output = self._format_email_list(
                         emails,
                         empty_message="No unread emails found matching the criteria.",
@@ -302,9 +299,6 @@ class GmailMCPServer:
                             ]
                         else:
                             raise
-
-                    if not emails:
-                        return [TextContent(type="text", text="No emails found matching the criteria.")]
 
                     formatted_output = self._format_email_list(
                         emails,
@@ -330,9 +324,6 @@ class GmailMCPServer:
                             ]
                         else:
                             raise
-
-                    if not emails:
-                        return [TextContent(type="text", text="No emails found matching the search query.")]
 
                     formatted_output = self._format_email_list(
                         emails,
@@ -452,11 +443,12 @@ class GmailMCPServer:
         header_type: str = "unread emails",
     ) -> str:
         """Format email list with thread grouping and full body content."""
+        # Clear previous position mapping first so a fetch that returns zero
+        # results still invalidates stale positions from an earlier fetch.
+        self.email_position_map = {}
+
         if not emails:
             return empty_message
-
-        # Clear previous position mapping
-        self.email_position_map = {}
 
         # Assign flat position numbers and build position map
         for i, email in enumerate(emails, 1):

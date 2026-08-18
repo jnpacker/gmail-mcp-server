@@ -56,7 +56,7 @@ make dashboard
 
 Or manually:
 ```bash
-python3 app.py
+.venv/bin/python app.py
 ```
 
 The dashboard will be available at `http://localhost:5000`

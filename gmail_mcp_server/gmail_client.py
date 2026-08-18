@@ -128,7 +128,7 @@ class GmailClient:
             return emails
 
         except HttpError as error:
-            raise Exception(f"An error occurred while searching emails: {error}")
+            raise Exception(f"An error occurred while searching emails: {error}") from error
 
     def list_all_emails(self, inbox_only: bool = True, max_results: int = 50) -> List[Dict[str, Any]]:
         """
