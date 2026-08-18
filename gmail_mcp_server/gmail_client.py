@@ -98,24 +98,24 @@ class GmailClient:
         if not self._authenticated:
             self._authenticate()
 
-    def list_unread_emails(self, subject_filter: str | None = None, max_results: int = 50) -> List[Dict[str, Any]]:
+    def search_emails(self, query: str = "", max_results: int = 50) -> List[Dict[str, Any]]:
         """
-        List unread emails in inbox, optionally filtered by subject.
+        Search emails using Gmail search syntax.
 
         Args:
-            subject_filter: Optional subject filter string
+            query: Gmail search query string (e.g., 'in:inbox', 'from:alice', 'has:attachment')
             max_results: Maximum number of emails to return
 
         Returns:
-            List of email dictionaries with id, threadId, labelIds, subject, sender, date, and body
+            List of email dictionaries with id, threadId, labelIds, subject, sender, date, snippet, and body
         """
         self._ensure_authenticated()
         try:
-            query = "is:unread in:inbox"
-            if subject_filter:
-                query += f' subject:"{subject_filter}"'
+            kwargs = {"userId": "me", "maxResults": max_results}
+            if query:
+                kwargs["q"] = query
 
-            result = self.service.users().messages().list(userId="me", q=query, maxResults=max_results).execute()
+            result = self.service.users().messages().list(**kwargs).execute()
 
             messages = result.get("messages", [])
             emails = []
@@ -128,7 +128,37 @@ class GmailClient:
             return emails
 
         except HttpError as error:
-            raise Exception(f"An error occurred while listing emails: {error}")
+            raise Exception(f"An error occurred while searching emails: {error}")
+
+    def list_all_emails(self, inbox_only: bool = True, max_results: int = 50) -> List[Dict[str, Any]]:
+        """
+        List emails, optionally restricted to the inbox (including read and unread).
+
+        Args:
+            inbox_only: Whether to only return emails currently in inbox (default True)
+            max_results: Maximum number of emails to return
+
+        Returns:
+            List of email dictionaries with id, threadId, labelIds, subject, sender, date, snippet, and body
+        """
+        query = "in:inbox" if inbox_only else ""
+        return self.search_emails(query=query, max_results=max_results)
+
+    def list_unread_emails(self, subject_filter: str | None = None, max_results: int = 50) -> List[Dict[str, Any]]:
+        """
+        List unread emails in inbox, optionally filtered by subject.
+
+        Args:
+            subject_filter: Optional subject filter string
+            max_results: Maximum number of emails to return
+
+        Returns:
+            List of email dictionaries with id, threadId, labelIds, subject, sender, date, and body
+        """
+        query = "is:unread in:inbox"
+        if subject_filter:
+            query += f' subject:"{subject_filter}"'
+        return self.search_emails(query=query, max_results=max_results)
 
     def _get_email_details(self, message_id: str) -> Dict[str, Any] | None:
         """Get detailed information about a specific email."""

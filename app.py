@@ -84,7 +84,7 @@ def require_pin(f):
 # ── Triage cache ───────────────────────────────────────────────
 
 # Store triage results in memory with timestamp
-TRIAGE_MODEL = "gemini-3.5-flash"
+TRIAGE_MODEL = "gemini-3.7-flash"
 triage_model = TRIAGE_MODEL
 
 # Keywords that indicate an authentication/authorization failure

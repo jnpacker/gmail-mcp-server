@@ -1,7 +1,7 @@
 ---
 argument-hint: Optional subject filter or keyword
 description: List and organize inbox emails with Gmail labels and links
-allowed-tools: [mcp__gmail__list_unread_emails, mcp__gmail__delete_emails, mcp__gmail__archive_emails, mcp__gmail__modify_labels, mcp__gmail__list_labels, mcp__gmail__create_label, mcp__gmail__list_recent_actions]
+allowed-tools: [mcp__gmail__list_unread_emails, mcp__gmail__list_all_emails, mcp__gmail__search_emails, mcp__gmail__delete_emails, mcp__gmail__archive_emails, mcp__gmail__modify_labels, mcp__gmail__list_labels, mcp__gmail__create_label, mcp__gmail__list_recent_actions]
 ---
 
 You are a Gmail management assistant. Your job is to fetch unread emails, organize them into labeled groups in Gmail, and output a concise dashboard with clickable Gmail links so the user can review each group directly in Gmail's UI.

@@ -381,6 +381,57 @@ class TestToolHandlers:
         t = text(result)
         assert "authentication" in t.lower()
 
+    def test_list_all_emails_with_results(self):
+        self.srv.gmail_client.list_all_emails.return_value = [make_email("m1", "All Email Test")]
+        result = self._call("list_all_emails", {"inbox_only": True})
+        t = text(result)
+        assert "Found 1 emails:" in t
+        assert "1: All Email Test" in t
+        self.srv.gmail_client.list_all_emails.assert_called_once_with(inbox_only=True, max_results=50)
+        assert self.srv.email_position_map == {1: "m1"}
+
+    def test_list_all_emails_no_results(self):
+        self.srv.gmail_client.list_all_emails.return_value = []
+        result = self._call("list_all_emails", {})
+        t = text(result)
+        assert "No emails found" in t
+
+    def test_list_all_emails_auth_error(self):
+        self.srv.gmail_client.list_all_emails.side_effect = Exception(
+            "Authentication required but no valid token found"
+        )
+        result = self._call("list_all_emails", {})
+        t = text(result)
+        assert "authentication" in t.lower()
+
+    def test_search_emails_with_results(self):
+        self.srv.gmail_client.search_emails.return_value = [make_email("m1", "Search Hit")]
+        result = self._call("search_emails", {"query": "from:alice@example.com"})
+        t = text(result)
+        assert "Found 1 matching emails:" in t
+        assert "1: Search Hit" in t
+        self.srv.gmail_client.search_emails.assert_called_once_with(query="from:alice@example.com", max_results=50)
+        assert self.srv.email_position_map == {1: "m1"}
+
+    def test_search_emails_missing_query(self):
+        result = self._call("search_emails", {})
+        t = text(result)
+        assert "query is required" in t.lower() or "error" in t.lower()
+
+    def test_search_emails_no_results(self):
+        self.srv.gmail_client.search_emails.return_value = []
+        result = self._call("search_emails", {"query": "from:nobody@example.com"})
+        t = text(result)
+        assert "No emails found" in t
+
+    def test_search_emails_auth_error(self):
+        self.srv.gmail_client.search_emails.side_effect = Exception(
+            "Authentication required but no valid token found"
+        )
+        result = self._call("search_emails", {"query": "subject:test"})
+        t = text(result)
+        assert "authentication" in t.lower()
+
 
 # ---------------------------------------------------------------------------
 # Tool listing
@@ -394,6 +445,8 @@ class TestListTools:
         names = {t.name for t in resp.tools}
         expected = {
             "list_unread_emails",
+            "list_all_emails",
+            "search_emails",
             "delete_emails",
             "archive_emails",
             "list_labels",
@@ -409,10 +462,10 @@ class TestListTools:
         names = {t.name for t in resp.tools}
         assert "mark_as_read" not in names
 
-    def test_seven_tools_total(self):
+    def test_nine_tools_total(self):
         srv = GmailMCPServer()
         resp = list_tools_sync(srv)
-        assert len(resp.tools) == 7
+        assert len(resp.tools) == 9
 
 
 # ---------------------------------------------------------------------------

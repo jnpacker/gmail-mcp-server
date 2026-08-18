@@ -5,6 +5,8 @@ A purpose-built Model Context Protocol (MCP) server for Gmail integration, allow
 ## Features
 
 - **List Unread Emails**: Retrieve unread emails from Gmail inbox with optional subject filtering
+- **List All Emails**: Retrieve all emails from Gmail (defaults to inbox, option for all mail)
+- **Search Emails**: Search emails using full Gmail query syntax (`from:`, `to:`, `subject:`, `has:attachment`, `after:`, `label:`, `is:starred`)
 - **Email Content**: Access complete email content including headers, body, and metadata
 - **Delete Emails**: Permanently delete emails by ID
 - **Archive Emails**: Archive emails (remove from inbox) by ID
@@ -20,21 +22,25 @@ git clone <repository-url>
 cd gmail-mcp-server
 ```
 
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-3. Set up Google OAuth 2.0 credentials:
+2. Set up Google OAuth 2.0 credentials:
    - Go to [Google Cloud Console](https://console.cloud.google.com/)
    - Create a new project or select an existing one
    - Enable the Gmail API
    - Create OAuth 2.0 credentials (Desktop application)
    - Download the credentials JSON file and save as `credentials.json` in the project root
 
+3. Authenticate (see [Authentication](#authentication) below):
+```bash
+make auth
+```
+No separate install step is needed — `make auth` (and every other `make` target that needs Python
+deps, e.g. `test`, `lint`, `dashboard`) automatically creates a local `.venv/` and installs the
+project into it on first run. You never need to `pip install` anything system-wide (many distros
+ship an "externally managed" system Python that refuses direct `pip install` anyway).
+
 Start the server:
 ```bash
-python -m gmail_mcp_server.server
+.venv/bin/python -m gmail_mcp_server.server
 ```
 
 ## Web Dashboard & Inbox Management
@@ -93,7 +99,7 @@ Create a `.mcp.json` file in your home directory or project directory with the f
 {
   "mcpServers": {
     "gmail": {
-      "command": "python",
+      "command": "/path/to/gmail-mcp-server/.venv/bin/python3",
       "args": ["-m", "gmail_mcp_server.server"],
       "cwd": "/path/to/gmail-mcp-server"
     }
@@ -102,7 +108,9 @@ Create a `.mcp.json` file in your home directory or project directory with the f
 ```
 
 **Configuration Details:**
-- `command`: The Python interpreter to use
+- `command`: The Python interpreter to use. Point this at `.venv/bin/python3` (created automatically
+  by `make auth`) so the server has access to its installed dependencies — a bare `python`/`python3`
+  will fail with `ModuleNotFoundError` unless those packages happen to be installed system-wide.
 - `args`: Arguments to pass to the Gmail MCP server module
 - `cwd`: The working directory where the Gmail MCP server is installed
 
@@ -225,26 +233,40 @@ Lists unread emails in Gmail inbox with optional filtering. Rebuilds the in-memo
 - `subject_filter` (optional): Filter emails by subject text
 - `max_results` (optional): Maximum number of emails to return (default: 50)
 
-#### 2. delete_emails
-Moves emails to trash and marks them as read. Accepts position numbers from the last `list_unread_emails` call and/or explicit Gmail message IDs.
+#### 2. list_all_emails
+Lists emails in Gmail (defaults to inbox, including both read and unread messages). Rebuilds the in-memory position map.
+
+**Parameters:**
+- `inbox_only` (optional): Whether to list only emails currently in inbox (default: `true`). Set to `false` to list all emails across all folders.
+- `max_results` (optional): Maximum number of emails to return (default: 50)
+
+#### 3. search_emails
+Searches emails using standard Gmail search query syntax. Rebuilds the in-memory position map.
+
+**Parameters:**
+- `query` (required): Gmail search query string (e.g. `from:user@example.com`, `has:attachment`, `subject:report`, `after:2024/01/01`, `is:starred`, `label:work`)
+- `max_results` (optional): Maximum number of emails to return (default: 50)
+
+#### 4. delete_emails
+Moves emails to trash and marks them as read. Accepts position numbers from the last email list/search call and/or explicit Gmail message IDs.
 
 **Parameters:**
 - `positions` (optional): Array of 1-based position numbers from the email list
 - `message_ids` (optional): Array of Gmail message IDs
 
-#### 3. archive_emails
+#### 5. archive_emails
 Archives emails (removes from inbox) and marks them as read.
 
 **Parameters:**
 - `positions` (optional): Array of 1-based position numbers
 - `message_ids` (optional): Array of Gmail message IDs
 
-#### 4. list_labels
+#### 6. list_labels
 Returns all Gmail labels (system + user-defined).
 
 **Parameters:** None
 
-#### 5. create_label
+#### 7. create_label
 Creates a new Gmail label with optional color.
 
 **Parameters:**
@@ -252,7 +274,7 @@ Creates a new Gmail label with optional color.
 - `background_color` (optional): Hex color (e.g., `#4a86e8`) — must be a predefined Gmail color
 - `text_color` (optional): Hex text color — must be paired with `background_color`
 
-#### 6. modify_labels
+#### 8. modify_labels
 Adds and/or removes labels on emails. When adding a `Triage/*` label, all other `Triage/*` labels on the email are automatically removed (one-label-per-email invariant).
 
 **Parameters:**
@@ -261,7 +283,7 @@ Adds and/or removes labels on emails. When adding a `Triage/*` label, all other 
 - `add_labels` (optional): Array of label names to add
 - `remove_labels` (optional): Array of label names to remove
 
-#### 7. list_recent_actions
+#### 9. list_recent_actions
 Returns the in-memory log of recent email operations (capped at 100).
 
 **Parameters:**
@@ -277,9 +299,12 @@ On first run, the server requires authentication. Use the provided authenticatio
 make auth
 ```
 
-Or manually:
+This automatically creates `.venv` (if it doesn't exist yet) and installs dependencies into it
+before running the auth flow, so no manual `pip install` step is required.
+
+Or manually, using the project's virtualenv:
 ```bash
-python -m gmail_mcp_server.auth
+.venv/bin/python -m gmail_mcp_server.auth
 ```
 
 This will:
@@ -318,10 +343,8 @@ Before running `make auth`, you need to set up Google OAuth 2.0 credentials:
 
 ## Development
 
-Install with dev dependencies:
-```bash
-pip install -e ".[dev]"
-```
+`make test`, `make lint`, `make format`, and `make auth` all automatically create `.venv/` (with dev
+dependencies) on first run, so there's no separate setup step.
 
 Run tests:
 ```bash
@@ -337,12 +360,12 @@ make format        # auto-format and fix imports with ruff
 
 Run the MCP server directly:
 ```bash
-python -m gmail_mcp_server        # short form (via __main__.py)
-python -m gmail_mcp_server.server # explicit
-gmail-mcp-server                  # installed entry point
+.venv/bin/python -m gmail_mcp_server        # short form (via __main__.py)
+.venv/bin/python -m gmail_mcp_server.server # explicit
+.venv/bin/gmail-mcp-server                  # installed entry point
 ```
 
 Test the server interactively with the MCP Inspector:
 ```bash
-npx @modelcontextprotocol/inspector python3 -m gmail_mcp_server.server
+npx @modelcontextprotocol/inspector .venv/bin/python3 -m gmail_mcp_server.server
 ```

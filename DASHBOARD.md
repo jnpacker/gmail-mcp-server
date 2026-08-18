@@ -144,7 +144,7 @@ All endpoints except the PIN/auth group require a valid session (set by `POST /a
   },
   "timestamp": "2026-03-06T10:30:00",
   "next_sync": "2026-03-06T10:45:00",
-  "model": "gemini-3.5-flash",
+  "model": "gemini-3.7-flash",
   "error": null
 }
 ```

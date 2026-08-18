@@ -1,7 +1,7 @@
 ---
 description: Intelligently triage inbox - label, organize, and summarize emails for Gmail review
 argument-hint: Optional - max number of emails to process
-allowed-tools: [mcp__gmail__list_unread_emails, mcp__gmail__delete_emails, mcp__gmail__archive_emails, mcp__gmail__modify_labels, mcp__gmail__list_labels, mcp__gmail__create_label, mcp__gmail__list_recent_actions]
+allowed-tools: [mcp__gmail__list_unread_emails, mcp__gmail__list_all_emails, mcp__gmail__search_emails, mcp__gmail__delete_emails, mcp__gmail__archive_emails, mcp__gmail__modify_labels, mcp__gmail__list_labels, mcp__gmail__create_label, mcp__gmail__list_recent_actions]
 ---
 
 You are an autonomous inbox manager. Process all unread emails, apply Gmail labels for organization, auto-delete obvious noise, and output a concise dashboard with Gmail links. Execute actions immediately without asking for confirmation.
