@@ -353,3 +353,65 @@ class TestListUnreadEmails:
         list_call = self.client.service.users().messages().list.call_args
         q_param = list_call.kwargs.get("q") or (list_call.args[0] if list_call.args else None)
         assert q_param is None or "Jira" in str(list_call)
+
+
+# ---------------------------------------------------------------------------
+# search_emails
+# ---------------------------------------------------------------------------
+
+
+class TestSearchEmails:
+    def setup_method(self):
+        self.client = _make_client()
+
+    def test_search_with_query(self):
+        self.client.service.users().messages().list().execute.return_value = {"messages": [{"id": "m1"}]}
+        msg = make_gmail_message("m1", subject="Report")
+        self.client.service.users().messages().get().execute.return_value = msg
+        results = self.client.search_emails(query="has:attachment")
+        assert len(results) == 1
+        assert results[0]["subject"] == "Report"
+        list_call = self.client.service.users().messages().list.call_args
+        assert list_call.kwargs.get("q") == "has:attachment"
+
+    def test_search_empty_query(self):
+        self.client.service.users().messages().list().execute.return_value = {"messages": [{"id": "m1"}]}
+        msg = make_gmail_message("m1", subject="No query")
+        self.client.service.users().messages().get().execute.return_value = msg
+        results = self.client.search_emails()
+        assert len(results) == 1
+        list_call = self.client.service.users().messages().list.call_args
+        assert "q" not in list_call.kwargs
+
+    def test_search_no_results(self):
+        self.client.service.users().messages().list().execute.return_value = {}
+        results = self.client.search_emails(query="from:nobody@example.com")
+        assert results == []
+
+
+# ---------------------------------------------------------------------------
+# list_all_emails
+# ---------------------------------------------------------------------------
+
+
+class TestListAllEmails:
+    def setup_method(self):
+        self.client = _make_client()
+
+    def test_list_all_emails_inbox_only_default(self):
+        self.client.service.users().messages().list().execute.return_value = {"messages": [{"id": "m1"}]}
+        msg = make_gmail_message("m1", subject="Inbox Email")
+        self.client.service.users().messages().get().execute.return_value = msg
+        results = self.client.list_all_emails()
+        assert len(results) == 1
+        list_call = self.client.service.users().messages().list.call_args
+        assert list_call.kwargs.get("q") == "in:inbox"
+
+    def test_list_all_emails_all_folders(self):
+        self.client.service.users().messages().list().execute.return_value = {"messages": [{"id": "m1"}]}
+        msg = make_gmail_message("m1", subject="All Email")
+        self.client.service.users().messages().get().execute.return_value = msg
+        results = self.client.list_all_emails(inbox_only=False)
+        assert len(results) == 1
+        list_call = self.client.service.users().messages().list.call_args
+        assert "q" not in list_call.kwargs

@@ -61,7 +61,7 @@ class GmailMCPServer:
         for pos in arguments.get("positions", []) or []:
             if pos not in self.email_position_map:
                 raise ValueError(
-                    f"Position {pos} not found in current email list. Please run 'list_unread_emails' first."
+                    f"Position {pos} not found in current email list. Please run 'list_unread_emails', 'list_all_emails', or 'search_emails' first."
                 )
             ids.append(self.email_position_map[pos])
         if not ids:
@@ -73,7 +73,7 @@ class GmailMCPServer:
             elif pos is not None:
                 if pos not in self.email_position_map:
                     raise ValueError(
-                        f"Position {pos} not found in current email list. Please run 'list_unread_emails' first."
+                        f"Position {pos} not found in current email list. Please run 'list_unread_emails', 'list_all_emails', or 'search_emails' first."
                     )
                 ids.append(self.email_position_map[pos])
         if not ids:
@@ -103,6 +103,44 @@ class GmailMCPServer:
                                 "default": 50,
                             },
                         },
+                    },
+                ),
+                Tool(
+                    name="list_all_emails",
+                    description="List emails in Gmail (defaults to inbox, including both read and unread)",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "inbox_only": {
+                                "type": "boolean",
+                                "description": "Whether to list only emails currently in inbox (default: true)",
+                                "default": True,
+                            },
+                            "max_results": {
+                                "type": "integer",
+                                "description": "Maximum number of emails to return (default: 50)",
+                                "default": 50,
+                            },
+                        },
+                    },
+                ),
+                Tool(
+                    name="search_emails",
+                    description="Search emails using standard Gmail search query syntax (e.g. 'from:user@example.com', 'has:attachment', 'subject:report', 'after:2024/01/01', 'is:starred')",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "Gmail search query string",
+                            },
+                            "max_results": {
+                                "type": "integer",
+                                "description": "Maximum number of emails to return (default: 50)",
+                                "default": 50,
+                            },
+                        },
+                        "required": ["query"],
                     },
                 ),
                 Tool(
@@ -239,10 +277,59 @@ class GmailMCPServer:
                         else:
                             raise
 
-                    if not emails:
-                        return [TextContent(type="text", text="No unread emails found matching the criteria.")]
+                    formatted_output = self._format_email_list(
+                        emails,
+                        empty_message="No unread emails found matching the criteria.",
+                        header_type="unread emails",
+                    )
+                    return [TextContent(type="text", text=formatted_output)]
 
-                    formatted_output = self._format_email_list(emails)
+                elif name == "list_all_emails":
+                    inbox_only = arguments.get("inbox_only", True) if arguments else True
+                    max_results = arguments.get("max_results", 50) if arguments else 50
+
+                    try:
+                        emails = self.gmail_client.list_all_emails(inbox_only=inbox_only, max_results=max_results)
+                    except Exception as auth_error:
+                        if "Authentication required but no valid token found" in str(auth_error):
+                            return [
+                                TextContent(
+                                    type="text", text=f"Gmail authentication setup required:\n\n{str(auth_error)}"
+                                )
+                            ]
+                        else:
+                            raise
+
+                    formatted_output = self._format_email_list(
+                        emails,
+                        empty_message="No emails found matching the criteria.",
+                        header_type="emails",
+                    )
+                    return [TextContent(type="text", text=formatted_output)]
+
+                elif name == "search_emails":
+                    if not arguments or "query" not in arguments:
+                        raise ValueError("query is required")
+                    query = arguments["query"]
+                    max_results = arguments.get("max_results", 50)
+
+                    try:
+                        emails = self.gmail_client.search_emails(query=query, max_results=max_results)
+                    except Exception as auth_error:
+                        if "Authentication required but no valid token found" in str(auth_error):
+                            return [
+                                TextContent(
+                                    type="text", text=f"Gmail authentication setup required:\n\n{str(auth_error)}"
+                                )
+                            ]
+                        else:
+                            raise
+
+                    formatted_output = self._format_email_list(
+                        emails,
+                        empty_message="No emails found matching the search query.",
+                        header_type="matching emails",
+                    )
                     return [TextContent(type="text", text=formatted_output)]
 
                 elif name == "delete_emails":
@@ -349,13 +436,19 @@ class GmailMCPServer:
             cleaned.pop()
         return "\n".join(cleaned)
 
-    def _format_email_list(self, emails: list) -> str:
+    def _format_email_list(
+        self,
+        emails: list,
+        empty_message: str = "No unread emails found.",
+        header_type: str = "unread emails",
+    ) -> str:
         """Format email list with thread grouping and full body content."""
-        if not emails:
-            return "No unread emails found."
-
-        # Clear previous position mapping
+        # Clear previous position mapping first so a fetch that returns zero
+        # results still invalidates stale positions from an earlier fetch.
         self.email_position_map = {}
+
+        if not emails:
+            return empty_message
 
         # Assign flat position numbers and build position map
         for i, email in enumerate(emails, 1):
@@ -374,7 +467,7 @@ class GmailMCPServer:
             tid = email.get("threadId", email["id"])
             threads.setdefault(tid, []).append(email)
 
-        result = f"Found {len(emails)} unread emails:\n\n"
+        result = f"Found {len(emails)} {header_type}:\n\n"
 
         for tid, thread_emails in threads.items():
             # Thread header for multi-message threads

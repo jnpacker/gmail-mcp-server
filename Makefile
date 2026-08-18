@@ -1,4 +1,4 @@
-.PHONY: help auth triage watch dashboard kill-dashboard set-pin podman-setup podman-build podman-push link-commands lint format test test-cov
+.PHONY: help venv auth triage watch dashboard kill-dashboard set-pin podman-setup podman-build podman-push link-commands lint format test test-cov
 
 .DEFAULT_GOAL := help
 
@@ -7,17 +7,37 @@ IMAGE_REPO ?= quay.io/gmail-dashboard
 _SAVED_TAG := $(shell cat .image-tag 2>/dev/null)
 IMAGE_TAG  ?= $(if $(_SAVED_TAG),$(_SAVED_TAG),0.1)
 
+VENV_DIR    := .venv
+VENV_PYTHON := $(VENV_DIR)/bin/python3
+VENV_RUFF   := $(VENV_DIR)/bin/ruff
+VENV_STAMP  := $(VENV_DIR)/.installed
+
 help: ## List available commands
 	@echo "Available commands:"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  make %-15s %s\n", $$1, $$2}'
 
-auth: ## Initialize Gmail OAuth authentication (requires credentials.json)
+# Depends on pyproject.toml so editing project deps (or dev deps) invalidates
+# the stamp and triggers a reinstall — a plain existence check on $(VENV_PYTHON)
+# would otherwise leave a stale environment after dependency changes.
+$(VENV_STAMP): pyproject.toml
+	@echo "Setting up local virtualenv in $(VENV_DIR)..."
+	python3 -m venv $(VENV_DIR)
+	$(VENV_PYTHON) -m pip install --upgrade pip
+	$(VENV_PYTHON) -m pip install -e ".[dev]"
+	@touch $(VENV_STAMP)
+	@echo "Virtualenv ready. ($(VENV_PYTHON))"
+
+# Not listed in `make help` — this is bootstrapped automatically as a dependency
+# of auth/test/lint/format/dashboard, not something you're expected to run directly.
+venv: $(VENV_STAMP)
+
+auth: venv ## Initialize Gmail OAuth authentication (requires credentials.json)
 	@if [ ! -f credentials.json ]; then \
 		echo "Error: credentials.json not found."; \
 		echo "Download it from Google Cloud Console and place it in this directory."; \
 		exit 1; \
 	fi
-	python3 -m gmail_mcp_server.auth
+	$(VENV_PYTHON) -m gmail_mcp_server.auth
 
 triage: ## Run inbox triage (MODEL=haiku|sonnet|opus)
 	./scripts/inbox-manager.sh --model $(MODEL)
@@ -25,10 +45,9 @@ triage: ## Run inbox triage (MODEL=haiku|sonnet|opus)
 watch: ## Watch inbox every 5 min (MODEL=haiku|sonnet|opus)
 	./scripts/inbox-manager.sh --watch 5 --model $(MODEL)
 
-dashboard: ## Start the web dashboard (auto-restarts on crash)
-	@PYTHON=$$(if [ -f .venv/bin/python3 ]; then echo .venv/bin/python3; else echo python3; fi); \
-	while true; do \
-		$$PYTHON app.py; \
+dashboard: venv ## Start the web dashboard (auto-restarts on crash)
+	@while true; do \
+		$(VENV_PYTHON) app.py; \
 		echo "[dashboard] Server exited (code $$?), restarting in 2s..."; \
 		sleep 2; \
 	done
@@ -67,18 +86,18 @@ podman-push: ## Push image to registry (IMAGE_REPO=...; uses saved tag)
 podman-setup: ## Run full Podman container setup
 	@bash scripts/podman-setup.sh
 
-lint: ## Run ruff linter
-	ruff check .
+lint: venv ## Run ruff linter
+	$(VENV_RUFF) check .
 
-format: ## Auto-format and fix code with ruff
-	ruff format .
-	ruff check --fix .
+format: venv ## Auto-format and fix code with ruff
+	$(VENV_RUFF) format .
+	$(VENV_RUFF) check --fix .
 
-test: ## Run tests with pytest
-	python3 -m pytest tests/ -v
+test: venv ## Run tests with pytest
+	$(VENV_PYTHON) -m pytest tests/ -v
 
-test-cov: ## Run tests with coverage report
-	python3 -m pytest tests/ --cov=gmail_mcp_server --cov=app --cov-report=term-missing
+test-cov: venv ## Run tests with coverage report
+	$(VENV_PYTHON) -m pytest tests/ --cov=gmail_mcp_server --cov=app --cov-report=term-missing
 
 set-pin: ## Set or change the dashboard PIN (prompts for PIN twice)
 	@python3 -c "\

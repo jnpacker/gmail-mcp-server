@@ -153,6 +153,18 @@ class TestFormatEmailList:
     def test_empty_list(self):
         assert self.srv._format_email_list([]) == "No unread emails found."
 
+    def test_empty_list_clears_stale_position_map(self):
+        """A prior fetch's positions must not survive an empty result from a later fetch."""
+        self.srv.email_position_map = {1: "stale-id-a", 2: "stale-id-b"}
+        self.srv._format_email_list([])
+        assert self.srv.email_position_map == {}
+
+    def test_empty_list_uses_custom_empty_message(self):
+        self.srv.email_position_map = {1: "stale-id-a"}
+        result = self.srv._format_email_list([], empty_message="Custom empty message")
+        assert result == "Custom empty message"
+        assert self.srv.email_position_map == {}
+
     def test_single_email_basic(self):
         emails = [make_email("m1", "Test Subject")]
         output = self.srv._format_email_list(emails)
@@ -373,11 +385,92 @@ class TestToolHandlers:
         t = text(result)
         assert "No unread emails" in t
 
+    def test_list_unread_emails_no_results_clears_position_map(self):
+        """An empty result must invalidate stale positions from a previous fetch."""
+        self.srv.gmail_client.list_unread_emails.return_value = []
+        self._call("list_unread_emails", {})
+        assert self.srv.email_position_map == {}
+
+        result = self._call("delete_emails", {"positions": [1]})
+        t = text(result)
+        assert "Position 1 not found" in t
+
     def test_list_unread_emails_auth_error(self):
         self.srv.gmail_client.list_unread_emails.side_effect = Exception(
             "Authentication required but no valid token found"
         )
         result = self._call("list_unread_emails", {})
+        t = text(result)
+        assert "authentication" in t.lower()
+
+    def test_list_all_emails_with_results(self):
+        self.srv.gmail_client.list_all_emails.return_value = [make_email("m1", "All Email Test")]
+        result = self._call("list_all_emails", {"inbox_only": True})
+        t = text(result)
+        assert "Found 1 emails:" in t
+        assert "1: All Email Test" in t
+        self.srv.gmail_client.list_all_emails.assert_called_once_with(inbox_only=True, max_results=50)
+        assert self.srv.email_position_map == {1: "m1"}
+
+    def test_list_all_emails_no_results(self):
+        self.srv.gmail_client.list_all_emails.return_value = []
+        result = self._call("list_all_emails", {})
+        t = text(result)
+        assert "No emails found" in t
+
+    def test_list_all_emails_no_results_clears_position_map(self):
+        """An empty result must invalidate stale positions from a previous fetch."""
+        self.srv.gmail_client.list_all_emails.return_value = []
+        self._call("list_all_emails", {})
+        assert self.srv.email_position_map == {}
+
+        result = self._call("archive_emails", {"positions": [2]})
+        t = text(result)
+        assert "Position 2 not found" in t
+
+    def test_list_all_emails_auth_error(self):
+        self.srv.gmail_client.list_all_emails.side_effect = Exception(
+            "Authentication required but no valid token found"
+        )
+        result = self._call("list_all_emails", {})
+        t = text(result)
+        assert "authentication" in t.lower()
+
+    def test_search_emails_with_results(self):
+        self.srv.gmail_client.search_emails.return_value = [make_email("m1", "Search Hit")]
+        result = self._call("search_emails", {"query": "from:alice@example.com"})
+        t = text(result)
+        assert "Found 1 matching emails:" in t
+        assert "1: Search Hit" in t
+        self.srv.gmail_client.search_emails.assert_called_once_with(query="from:alice@example.com", max_results=50)
+        assert self.srv.email_position_map == {1: "m1"}
+
+    def test_search_emails_missing_query(self):
+        result = self._call("search_emails", {})
+        t = text(result)
+        assert "query is required" in t.lower() or "error" in t.lower()
+
+    def test_search_emails_no_results(self):
+        self.srv.gmail_client.search_emails.return_value = []
+        result = self._call("search_emails", {"query": "from:nobody@example.com"})
+        t = text(result)
+        assert "No emails found" in t
+
+    def test_search_emails_no_results_clears_position_map(self):
+        """An empty result must invalidate stale positions from a previous fetch."""
+        self.srv.gmail_client.search_emails.return_value = []
+        self._call("search_emails", {"query": "from:nobody@example.com"})
+        assert self.srv.email_position_map == {}
+
+        result = self._call("modify_labels", {"positions": [3], "add_labels": ["Triage/Jira"]})
+        t = text(result)
+        assert "Position 3 not found" in t
+
+    def test_search_emails_auth_error(self):
+        self.srv.gmail_client.search_emails.side_effect = Exception(
+            "Authentication required but no valid token found"
+        )
+        result = self._call("search_emails", {"query": "subject:test"})
         t = text(result)
         assert "authentication" in t.lower()
 
@@ -394,6 +487,8 @@ class TestListTools:
         names = {t.name for t in resp.tools}
         expected = {
             "list_unread_emails",
+            "list_all_emails",
+            "search_emails",
             "delete_emails",
             "archive_emails",
             "list_labels",
@@ -409,10 +504,10 @@ class TestListTools:
         names = {t.name for t in resp.tools}
         assert "mark_as_read" not in names
 
-    def test_seven_tools_total(self):
+    def test_nine_tools_total(self):
         srv = GmailMCPServer()
         resp = list_tools_sync(srv)
-        assert len(resp.tools) == 7
+        assert len(resp.tools) == 9
 
 
 # ---------------------------------------------------------------------------
