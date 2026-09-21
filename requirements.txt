@@ -1,6 +1,6 @@
 # 2.0.0 removes the Server.list_tools()/call_tool() decorator API used here; requires a dedicated migration
-mcp>=1.29.1,<2.0.0
-google-auth>=2.57.1
+mcp>=1.30.0,<2.0.0
+google-auth>=2.58.0
 google-auth-oauthlib>=1.4.1
 google-auth-httplib2>=0.4.2
 google-api-python-client>=2.200.0
